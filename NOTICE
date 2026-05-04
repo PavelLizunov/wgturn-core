@@ -1,0 +1,82 @@
+wgturn-core
+===========
+
+Copyright 2026 The wgturn-core Authors.
+
+This product includes software derived from prior open-source work in the
+"VK TURN proxy" lineage. Attribution and provenance are recorded below.
+
+
+Upstream code lineage
+---------------------
+
+1. KillTheCensorship/Turnel  (MIT License)
+   https://github.com/KillTheCensorship/Turnel
+   Original Go-based UDP-over-TURN tunnel with Yandex Telemost integration.
+   Archived 2026-01-29.
+
+2. cacggghp/vk-turn-proxy
+   https://github.com/cacggghp/vk-turn-proxy
+   Adapted Turnel to VK Calls TURN servers, added DTLS 1.2 obfuscation and
+   the multi-stream pattern. (No explicit license declared upstream; this
+   project does not import code from cacggghp directly — see point 3.)
+
+3. kiper292/vk-turn-proxy  (GNU GPL v3.0)
+   https://github.com/kiper292/vk-turn-proxy
+   Refactored protocol with Session-ID handshake and per-session backend
+   aggregation. Used as the *protocol reference* for the server side; this
+   repository does NOT vendor or copy GPL-3.0 sources.
+
+4. kiper292/wireguard-turn-android  (Apache License 2.0)
+   https://github.com/kiper292/wireguard-turn-android
+   Reference implementation that embeds the TURN client into libwg-go.so.
+   Substantial portions of the Go source under tunnel/tools/libwg-go/
+   (turn-client.go, credentials.go, profiles.go, vk.go, wb.go,
+   turn-dns-resolver.go and related files) inspired the initial structure
+   of this repository. All such derived files retain the Apache-2.0
+   header from the upstream and are clearly marked.
+
+5. golang.zx2c4.com/wireguard  (MIT License)
+   https://git.zx2c4.com/wireguard-go/
+   The userspace WireGuard implementation that the optional `pkg/wgkernel`
+   subpackage embeds.
+
+6. github.com/pion/{dtls,turn,stun,logging,transport,randutil}  (MIT)
+   https://github.com/pion
+   The Pion community's TURN, STUN, and DTLS libraries.
+
+
+Modifications relative to the kiper292/wireguard-turn-android upstream
+----------------------------------------------------------------------
+
+* Removed all Android-specific JNI bindings and cgo entry points.
+* Replaced `wgProtectSocket(int fd)` C calls with a Go-only
+  `SocketProtector` interface (pkg/wgturn.SocketProtector).
+* Replaced `__android_log_write` with a Go `Logger` interface.
+* De-globalised the proxy: each `Hub` is its own instance, no package-level
+  state, multiple Hubs per process supported.
+* Repackaged into `pkg/` (public API) and `internal/` (implementation),
+  removing the upstream `package main` flat layout.
+* Stripped browser-fingerprint TLS-Client dependency tree
+  (github.com/kiper292/tls-client and friends) for v0.0.1-alpha. The
+  default `CredentialsProvider` is a stub; real VK / WB providers will be
+  re-introduced in subsequent releases as separate sub-modules to keep the
+  core dependency surface small.
+
+
+Trademark disclaimer
+--------------------
+
+VK, ВКонтакте, Yandex, Telemost, Одноклассники, Max are trademarks of their
+respective owners. This project is not affiliated with, endorsed by, or
+sponsored by any of them.
+
+
+Educational purpose
+-------------------
+
+This software is provided for educational and research purposes. Using
+third-party TURN infrastructure to relay traffic that is not part of an
+authorised real-time communications session may violate the terms of
+service of those providers. The authors disclaim any responsibility for
+how this software is used.

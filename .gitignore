@@ -1,0 +1,31 @@
+# Build artefacts
+/bin/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.aar
+*.xcframework
+*.test
+*.out
+
+# Coverage
+*.cover
+coverage.txt
+coverage.html
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Caches
+/.cache/
