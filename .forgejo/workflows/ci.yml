@@ -48,14 +48,18 @@ jobs:
             -covermode=atomic
 
       - name: coverage summary
-        run: go tool cover -func=coverage.out | tail -20
-
-      - name: upload coverage artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.out
-          retention-days: 7
+        run: |
+          echo "## Coverage" >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+          go tool cover -func=coverage.out | tee /tmp/cover.out
+          # Job summary works on both GitHub and Forgejo Actions; skip if
+          # the runtime doesn't expose $GITHUB_STEP_SUMMARY.
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            { echo '```'; tail -30 /tmp/cover.out; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+        # NOTE: actions/upload-artifact@v4+ depends on the GHES artifact
+        # API which Forgejo does not implement. If you need persistent
+        # coverage history, push to Codecov or commit the file via a
+        # forgejo-only step instead.
 
   lint:
     name: golangci-lint
