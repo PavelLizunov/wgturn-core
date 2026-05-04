@@ -207,3 +207,5 @@ documentation and observable wire format.
 - [kiper292/wireguard-turn-android](https://github.com/kiper292/wireguard-turn-android) — Android wrapper, source of inspiration
 - [cacggghp/vk-turn-proxy](https://github.com/cacggghp/vk-turn-proxy) — original VK adaptation
 - [KillTheCensorship/Turnel](https://github.com/KillTheCensorship/Turnel) — original Yandex Telemost variant (archived 2026-01)
+
+Last verified: 2026-05-04T18:28:41+00:00
