@@ -18,6 +18,10 @@ import (
 // MetaPrefix is the prefix that introduces a wgturn metadata line.
 const MetaPrefix = "#@wgt:"
 
+// DefaultLocalListen is the local UDP listen address used by
+// Settings.ToTunnelConfig when LocalListen is empty.
+const DefaultLocalListen = "127.0.0.1:9000"
+
 // Settings holds wgturn-specific values extracted from a WireGuard
 // configuration file. Zero values mean "not specified".
 type Settings struct {
@@ -239,7 +243,7 @@ func (s Settings) ToTunnelConfig() (wgturn.Config, error) {
 	}
 	listen := s.LocalListen
 	if listen == "" {
-		listen = "127.0.0.1:9000"
+		listen = DefaultLocalListen
 	}
 	cfg := wgturn.Config{
 		PeerAddr:         s.Peer,

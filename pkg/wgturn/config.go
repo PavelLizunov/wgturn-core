@@ -130,13 +130,13 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%w: PeerAddr is required", ErrInvalidConfig)
 	}
 	if _, _, err := net.SplitHostPort(c.PeerAddr); err != nil {
-		return fmt.Errorf("%w: PeerAddr %q: %v", ErrInvalidConfig, c.PeerAddr, err)
+		return fmt.Errorf("%w: PeerAddr %q: %s", ErrInvalidConfig, c.PeerAddr, err.Error())
 	}
 	if c.ListenAddr == "" {
 		return fmt.Errorf("%w: ListenAddr is required", ErrInvalidConfig)
 	}
 	if _, _, err := net.SplitHostPort(c.ListenAddr); err != nil {
-		return fmt.Errorf("%w: ListenAddr %q: %v", ErrInvalidConfig, c.ListenAddr, err)
+		return fmt.Errorf("%w: ListenAddr %q: %s", ErrInvalidConfig, c.ListenAddr, err.Error())
 	}
 	if c.Streams < 0 {
 		return fmt.Errorf("%w: Streams must be >= 0 (zero defaults to 1)", ErrInvalidConfig)

@@ -136,17 +136,13 @@ func (s *stubProvider) Fetch(_ context.Context, _ string, _ int) (proxy.Credenti
 	return s.creds, nil
 }
 
-// noopProtector is the test's stand-in for SocketProtector — accept
-// every fd, never error.
-func noopProtector(_, _ string, _ interface{ Control(func(uintptr)) error }) error { return nil }
-
-// stdoutLogger emits at Warn+ to keep the test output sane.
+// testLogger emits at Warn+ to keep the test output sane.
 type testLogger struct{ t *testing.T }
 
-func (l *testLogger) Debugf(string, ...any)              {}
-func (l *testLogger) Infof(string, ...any)               {}
-func (l *testLogger) Warnf(f string, args ...any)        { l.t.Logf("[warn] "+f, args...) }
-func (l *testLogger) Errorf(f string, args ...any)       { l.t.Logf("[error] "+f, args...) }
+func (l *testLogger) Debugf(string, ...any)        {}
+func (l *testLogger) Infof(string, ...any)         {}
+func (l *testLogger) Warnf(f string, args ...any)  { l.t.Logf("[warn] "+f, args...) }
+func (l *testLogger) Errorf(f string, args ...any) { l.t.Logf("[error] "+f, args...) }
 
 // TestHub_RawMode_RoundTrip is the headline integration test: real TURN
 // server, real echo peer, raw (no-DTLS) mode, single stream, single

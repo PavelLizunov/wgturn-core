@@ -230,13 +230,13 @@ func TestCache_ConcurrentSameGroup_SerialisesFetch(t *testing.T) {
 
 func TestIsAuthError(t *testing.T) {
 	cases := map[string]bool{
-		"":                                false,
-		"some random error":               false,
-		"401 Unauthorized from server":    true,
-		"authentication failed":           true,
-		"invalid credential supplied":     true,
-		"stale nonce — please retry":      true,
-		"network unreachable":             false,
+		"":                             false,
+		"some random error":            false,
+		"401 Unauthorized from server": true,
+		"authentication failed":        true,
+		"invalid credential supplied":  true,
+		"stale nonce — please retry":   true,
+		"network unreachable":          false,
 	}
 	for s, want := range cases {
 		var err error
