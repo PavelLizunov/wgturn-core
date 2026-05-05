@@ -45,12 +45,12 @@ type vkResponse map[string]any
 // apiClient is the stateful glue around an http.Client that talks to
 // VK / OK and walks through the 6-step anonymous-token flow.
 type apiClient struct {
-	http       *http.Client
-	profile    browserProfile
-	logger     wgturn.Logger
-	appID      string
-	clientSec  string
-	hosts      apiHosts
+	http      *http.Client
+	profile   browserProfile
+	logger    wgturn.Logger
+	appID     string
+	clientSec string
+	hosts     apiHosts
 }
 
 // apiHosts pulls every endpoint host into one struct so tests can
@@ -118,12 +118,12 @@ func (c *apiClient) fetchTurn(ctx context.Context, callID string) (string, strin
 	// Step 1: primary anonymous token.
 	resp, err := c.post(ctx, c.hosts.login+"/?act=get_anonym_token",
 		url.Values{
-			"client_secret":             {c.clientSec},
-			"client_id":                 {c.appID},
-			"scopes":                    {"audio_anonymous,video_anonymous,photos_anonymous,profile_anonymous"},
-			"isApiOauthAnonymEnabled":   {"false"},
-			"version":                   {"1"},
-			"app_id":                    {c.appID},
+			"client_secret":           {c.clientSec},
+			"client_id":               {c.appID},
+			"scopes":                  {"audio_anonymous,video_anonymous,photos_anonymous,profile_anonymous"},
+			"isApiOauthAnonymEnabled": {"false"},
+			"version":                 {"1"},
+			"app_id":                  {c.appID},
 		})
 	if err != nil {
 		return "", "", "", fmt.Errorf("step1 anonym token: %w", err)
