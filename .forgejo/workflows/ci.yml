@@ -21,21 +21,31 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          # cache: false — see lint job for explanation.
-          cache: false
+      # Install Go directly. actions/setup-go@v5 occasionally hangs on
+      # our forgejo-runner after `go env`, with no log diagnostics —
+      # bypassing it makes setup deterministic and ~5 s instead of
+      # ~60 s of action plumbing.
+      - name: install Go
+        run: |
+          GO_VERSION=1.25.5
+          curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
 
       - name: download
-        run: go mod download
+        run: |
+          export PATH=/usr/local/go/bin:$PATH
+          go mod download
 
       - name: build
-        run: go build ./...
+        run: |
+          export PATH=/usr/local/go/bin:$PATH
+          go build ./...
 
       - name: vet
-        run: go vet ./...
+        run: |
+          export PATH=/usr/local/go/bin:$PATH
+          go vet ./...
 
       # NOTE: -race is intentionally NOT enabled in CI. The default
       # node:22-bookworm runner image has no gcc, so cgo-dependent
@@ -46,6 +56,7 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
+          export PATH=/usr/local/go/bin:$PATH
           go test ./... \
             -timeout 120s \
             -coverprofile=coverage.out \
@@ -53,6 +64,7 @@ jobs:
 
       - name: coverage summary
         run: |
+          export PATH=/usr/local/go/bin:$PATH
           echo "## Coverage" >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
           go tool cover -func=coverage.out | tee /tmp/cover.out
           # Job summary works on both GitHub and Forgejo Actions; skip if
