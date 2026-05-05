@@ -34,6 +34,9 @@ pkg/
                        creds from a vk.com/call/join/<id> link.
   wgconf/              Parser for #@wgt: metadata in WireGuard .conf files
                        (the kiper292/wireguard-turn-android convention).
+  wgkernel/            Embedded wireguard-go userspace. Bring up a real
+                       WG endpoint inside the same process; pair with
+                       a wgturn.Tunnel for a single-binary VPN client.
 
 internal/
   proxy/               Hub + Stream: the actual TURN proxy. Multi-stream
@@ -219,17 +222,71 @@ later, manual override, etc.). A solver may land later as
 `pkg/wgturn/provider/vk/captcha`, kept opt-in to avoid pulling the
 upstream's `bogdanfinn/tls-client` + uTLS dep tree into core.
 
+## Embedded WireGuard kernel (`pkg/wgkernel`)
+
+`pkg/wgkernel` wraps [`golang.zx2c4.com/wireguard`](https://git.zx2c4.com/wireguard-go/)
+so an application can run a full WireGuard endpoint **in the same Go
+process** as wgturn-core, with no external `wg-quick` or system
+WireGuard daemon. Pair it with a `wgturn.Tunnel` and you get a
+single-binary VPN client.
+
+```go
+import (
+    "github.com/slovn/wgturn-core/pkg/wgkernel"
+    "github.com/slovn/wgturn-core/pkg/wgturn"
+    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+)
+
+// 1. Bring up the TURN proxy.
+tn, _ := wgturn.New(wgturn.Config{
+    PeerAddr:   "vps.example.com:56000",
+    ListenAddr: "127.0.0.1:0",
+    Streams:    4,
+    Mode:       wgturn.ModeVKLink,
+    Hint:       "https://vk.com/call/join/abcdef",
+    Provider:   vk.New(),
+    Protector:  wgturn.NoopProtector{},
+})
+_ = tn.Start(ctx)
+
+// 2. Bring up the WireGuard kernel; WithTurnTunnel rewrites every
+//    peer Endpoint to the tunnel's local address.
+tunDev, _ := wgkernel.NewSystemTUN("wg0", 1280)
+k, _ := wgkernel.New(wgkernel.Config{
+    PrivateKey: "<base64>",
+    Address:    []netip.Prefix{netip.MustParsePrefix("10.7.0.2/32")},
+    Peers: []wgkernel.PeerConfig{{
+        PublicKey:  "<server pubkey base64>",
+        AllowedIPs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+        PersistentKeepalive: 25 * time.Second,
+    }},
+}, tunDev, wgkernel.WithTurnTunnel(tn))
+_ = k.Start(ctx)
+```
+
+Three TUN factories are provided:
+
+| Factory | When to use |
+|---|---|
+| `NewSystemTUN(name, mtu)` | Linux/Windows/macOS desktop (root required) |
+| `NewTUNFromFD(fd, mtu)` | Android `VpnService` / iOS `NEPacketTunnelProvider` |
+| `NewMemoryTUNPair(...)` | Tests; no privileges, no OS interface |
+
+End-to-end coverage in `pkg/wgkernel/kernel_test.go` includes a real
+WG handshake between two in-process kernels using paired memory TUNs
+and curve25519 keys — completes in ~100 ms.
+
 ## What's NOT yet in v0.0.1-alpha
 
 - WB Stream API provider (analogous to VK's, different upstream).
 - DNS-cascade resolver (kiper292's UDP→DoH→DoT failover for credential
   fetches over a VPN). Lands when we test on Android.
 - gomobile bindings (Android `.aar` / iOS `.xcframework`). They are
-  trivial wrappers around `pkg/wgturn`; will land as a sibling repo.
-- A full `pkg/wgkernel` that bundles `wireguard-go` userspace into the
-  same process so callers don't have to run a separate WG client. The
-  proxy library is sufficient for now since most real apps already
-  embed `wireguard-go` themselves.
+  trivial wrappers around `pkg/wgturn` + `pkg/wgkernel`; will land as
+  a sibling repo.
+- Routing / DNS / firewall management around the system TUN — that is
+  intentionally the host application's responsibility (it knows the
+  platform conventions; we don't).
 
 ## Provenance & licensing
 
