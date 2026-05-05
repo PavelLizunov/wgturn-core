@@ -77,7 +77,7 @@ func detectVKError(resp vkResponse) error {
 		case map[string]any:
 			code, _ := e["error_code"].(float64)
 			msg, _ := e["error_msg"].(string)
-			if code == 14 || msg == "Captcha needed" {
+			if code == 14 || msg == captchaNeededMsg {
 				ch := extractCaptcha(e)
 				wrappedMsg := fmt.Errorf("%w: code=%d msg=%q",
 					wgturn.ErrCaptchaRequired, int(code), msg)
@@ -97,7 +97,7 @@ func detectVKError(resp vkResponse) error {
 	if codeAny, ok := resp["error_code"]; ok {
 		code, _ := codeAny.(float64)
 		msg, _ := resp["error_msg"].(string)
-		if code == 14 || msg == "Captcha needed" {
+		if code == 14 || msg == captchaNeededMsg {
 			return fmt.Errorf("%w: ok code=%d msg=%q", wgturn.ErrCaptchaRequired, int(code), msg)
 		}
 		return fmt.Errorf("ok error code=%d msg=%q", int(code), msg)

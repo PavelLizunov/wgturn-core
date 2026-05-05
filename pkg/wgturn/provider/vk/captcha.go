@@ -32,6 +32,10 @@ type CaptchaChallenge struct {
 	Attempt int
 }
 
+// captchaNeededMsg is VK's error_msg for code-14 challenges. Pulled
+// out as a const so multiple match sites don't drift.
+const captchaNeededMsg = "Captcha needed"
+
 // Solution is what a CaptchaSolver returns. Either Key (text answer)
 // or SuccessToken (from the slider/redirect flow) must be set.
 type Solution struct {
@@ -80,7 +84,7 @@ func (rejectingSolver) Solve(_ context.Context, _ CaptchaChallenge) (Solution, e
 func extractCaptcha(errObj map[string]any) *CaptchaChallenge {
 	code, _ := errObj["error_code"].(float64)
 	msg, _ := errObj["error_msg"].(string)
-	if int(code) != 14 && msg != "Captcha needed" {
+	if int(code) != 14 && msg != captchaNeededMsg {
 		return nil
 	}
 	sid, _ := errObj["captcha_sid"].(string)

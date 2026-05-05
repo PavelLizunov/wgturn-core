@@ -81,11 +81,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 //
 // The 5-step flow (per kiper292 reference at v=5.275):
 //
-//	1. POST /?act=get_anonym_token              → token1
-//	2. POST /method/calls.getCallPreview         (best-effort)
-//	3. POST /method/calls.getAnonymousToken      → token2 (call-scoped)
-//	4. POST /fb.do auth.anonymLogin              → session_key
-//	5. POST /fb.do vchat.joinConversationByLink  → TURN creds
+//  1. POST /?act=get_anonym_token              → token1
+//  2. POST /method/calls.getCallPreview         (best-effort)
+//  3. POST /method/calls.getAnonymousToken      → token2 (call-scoped)
+//  4. POST /fb.do auth.anonymLogin              → session_key
+//  5. POST /fb.do vchat.joinConversationByLink  → TURN creds
 func happyPathHandlers(t *testing.T, m *mockVKServer, turnURL string) func() {
 	t.Helper()
 
