@@ -23,6 +23,7 @@ type Provider struct {
 	appID      string
 	clientSec  string
 	hosts      apiHosts
+	captcha    CaptchaSolver
 }
 
 // New constructs a Provider with the given options applied. With no
@@ -34,6 +35,7 @@ func New(opts ...Option) *Provider {
 		appID:     defaultAppID,
 		clientSec: defaultClientSecret,
 		hosts:     defaultHosts(),
+		captcha:   rejectingSolver{},
 	}
 	for _, o := range opts {
 		o(p)
@@ -65,6 +67,7 @@ func (p *Provider) Fetch(ctx context.Context, hint string, streamID int) (wgturn
 		appID:     p.appID,
 		clientSec: p.clientSec,
 		hosts:     p.hosts,
+		captcha:   p.captcha,
 	}
 
 	user, pass, addr, err := api.fetchTurn(ctx, callID)
@@ -88,19 +91,22 @@ func (p *Provider) Fetch(ctx context.Context, hint string, streamID int) (wgturn
 // does not supply one. The Control hook is wired through the optional
 // SocketProtector so that on a host VPN the credential traffic does
 // not loop through the very tunnel we're trying to bring up.
+//
+// The Transport is a utls-backed RoundTripper that mimics a recent
+// Chrome JA3 fingerprint. VK's anonymous-token API rejects requests
+// from Go's default crypto/tls handshake with a captcha challenge
+// regardless of UA / Sec-CH-UA headers; the JA3 forgery is mandatory
+// for the flow to succeed without a captcha solver.
+//
+// Tests that point the provider at httptest.NewServer (HTTP, not
+// HTTPS) transparently fall through to the stdlib transport.
 func newDefaultHTTPClient(p wgturn.SocketProtector) *http.Client {
 	d := &net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}
 	if p != nil {
 		d.Control = wgturn.ControlFunc(p)
 	}
 	return &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			DialContext:           d.DialContext,
-			MaxIdleConns:          16,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
+		Timeout:   30 * time.Second,
+		Transport: newUTLSTransport(d),
 	}
 }

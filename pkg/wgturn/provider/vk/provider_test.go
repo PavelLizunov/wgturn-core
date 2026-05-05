@@ -19,14 +19,17 @@ import (
 )
 
 // mockVKServer stands in for login.vk.ru, api.vk.ru, and calls.okcdn.ru.
-// All three are co-tenanted on a single httptest server; we point all
-// host overrides to its base URL via vk.WithHostsForTest. The handler
-// is keyed by URL path; tests override per-step behaviour by
-// registering a custom handler.
+// All three are co-tenanted on a single httptest server; the WithHostsForTest
+// option points all three host overrides to its base URL. Handlers are
+// keyed by URL path; tests override per-step behaviour by registering a
+// handler for the corresponding path.
 //
-// Note: the login.vk.ru endpoint is at path "/" with action selected
-// by the "?act=" query parameter — so the "/" handler must inspect
-// the query to differentiate. The other endpoints have unique paths.
+// Path map (matches the new 5-step flow at v=5.275):
+//
+//	/                                            login.vk.ru — get_anonym_token
+//	/method/calls.getCallPreview                 api.vk.ru — preview (best-effort)
+//	/method/calls.getAnonymousToken              api.vk.ru — call-scoped token
+//	/fb.do                                       calls.okcdn.ru — OK CDN
 type mockVKServer struct {
 	*httptest.Server
 	handlers map[string]http.HandlerFunc
@@ -75,57 +78,55 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // happyPathHandlers wires up a working VK / OK simulator. Returns a
 // closure that asserts the expected hit counts after Fetch returns.
+//
+// The 5-step flow (per kiper292 reference at v=5.275):
+//
+//	1. POST /?act=get_anonym_token              → token1
+//	2. POST /method/calls.getCallPreview         (best-effort)
+//	3. POST /method/calls.getAnonymousToken      → token2 (call-scoped)
+//	4. POST /fb.do auth.anonymLogin              → session_key
+//	5. POST /fb.do vchat.joinConversationByLink  → TURN creds
 func happyPathHandlers(t *testing.T, m *mockVKServer, turnURL string) func() {
 	t.Helper()
 
-	// "/" handles steps 1 and 3 (both POST login.vk.ru?act=get_anonym_token).
-	loginCalls := atomic.Int32{}
 	m.register("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("act") != "get_anonym_token" {
-			t.Errorf("/login: missing/wrong ?act, got %q", r.URL.Query().Get("act"))
-		}
 		_ = r.ParseForm()
-		n := loginCalls.Add(1)
-		var token string
-		if n == 1 {
-			token = "tok1-primary"
-			if got := r.FormValue("scopes"); !strings.Contains(got, "anonymous") {
-				t.Errorf("step1 scopes wrong: %q", got)
-			}
-		} else {
-			if r.FormValue("token_type") != "messages" {
-				t.Errorf("step3 token_type = %q", r.FormValue("token_type"))
-			}
-			if r.FormValue("payload") != "the-payload-blob" {
-				t.Errorf("step3 payload = %q", r.FormValue("payload"))
-			}
-			token = "tok3-secondary"
+		if r.URL.Query().Get("act") != "get_anonym_token" {
+			t.Errorf("step1: ?act=%q", r.URL.Query().Get("act"))
+		}
+		// New flow: token_type=messages, no scopes.
+		if r.FormValue("token_type") != "messages" {
+			t.Errorf("step1: token_type=%q", r.FormValue("token_type"))
 		}
 		writeJSON(w, map[string]any{
-			"data": map[string]any{"access_token": token},
+			"data": map[string]any{"access_token": "tok1-anon"},
 		})
 	})
 
-	m.register("/method/calls.getAnonymousAccessTokenPayload", func(w http.ResponseWriter, r *http.Request) {
+	m.register("/method/calls.getCallPreview", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
-		if r.FormValue("access_token") != "tok1-primary" {
-			t.Errorf("step2 access_token = %q", r.FormValue("access_token"))
+		if r.FormValue("access_token") != "tok1-anon" {
+			t.Errorf("step2 access_token=%q", r.FormValue("access_token"))
 		}
+		// best-effort; real VK can return arbitrary preview JSON
 		writeJSON(w, map[string]any{
-			"response": map[string]any{"payload": "the-payload-blob"},
+			"response": map[string]any{"call_title": "test call"},
 		})
 	})
 
 	m.register("/method/calls.getAnonymousToken", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
-		if !strings.HasSuffix(r.FormValue("vk_join_link"), "/abc123") {
-			t.Errorf("step4 vk_join_link = %q", r.FormValue("vk_join_link"))
+		if r.FormValue("access_token") != "tok1-anon" {
+			t.Errorf("step3 access_token=%q (want tok1-anon)", r.FormValue("access_token"))
 		}
-		if r.FormValue("access_token") != "tok3-secondary" {
-			t.Errorf("step4 access_token = %q", r.FormValue("access_token"))
+		if r.FormValue("name") == "" {
+			t.Errorf("step3 missing name")
+		}
+		if !strings.HasSuffix(r.FormValue("vk_join_link"), "/abc123") {
+			t.Errorf("step3 vk_join_link=%q", r.FormValue("vk_join_link"))
 		}
 		writeJSON(w, map[string]any{
-			"response": map[string]any{"token": "tok4-call-scoped"},
+			"response": map[string]any{"token": "tok2-call-scoped"},
 		})
 	})
 
@@ -136,21 +137,21 @@ func happyPathHandlers(t *testing.T, m *mockVKServer, turnURL string) func() {
 		switch n {
 		case 1:
 			if r.FormValue("method") != "auth.anonymLogin" {
-				t.Errorf("step5 method = %q", r.FormValue("method"))
+				t.Errorf("step4 method=%q", r.FormValue("method"))
 			}
 			writeJSON(w, map[string]any{"session_key": "sess-12345"})
 		case 2:
 			if r.FormValue("method") != "vchat.joinConversationByLink" {
-				t.Errorf("step6 method = %q", r.FormValue("method"))
+				t.Errorf("step5 method=%q", r.FormValue("method"))
 			}
-			if r.FormValue("anonymToken") != "tok4-call-scoped" {
-				t.Errorf("step6 anonymToken = %q", r.FormValue("anonymToken"))
+			if r.FormValue("anonymToken") != "tok2-call-scoped" {
+				t.Errorf("step5 anonymToken=%q", r.FormValue("anonymToken"))
 			}
 			if r.FormValue("session_key") != "sess-12345" {
-				t.Errorf("step6 session_key = %q", r.FormValue("session_key"))
+				t.Errorf("step5 session_key=%q", r.FormValue("session_key"))
 			}
-			if r.FormValue("joinLink") != "abc123" {
-				t.Errorf("step6 joinLink = %q", r.FormValue("joinLink"))
+			if r.FormValue("capabilities") != "2F7F" {
+				t.Errorf("step5 capabilities=%q (want 2F7F)", r.FormValue("capabilities"))
 			}
 			writeJSON(w, map[string]any{
 				"turn_server": map[string]any{
@@ -164,18 +165,17 @@ func happyPathHandlers(t *testing.T, m *mockVKServer, turnURL string) func() {
 
 	return func() {
 		t.Helper()
-		// "/" handles login twice (steps 1 and 3); "/fb.do" twice (steps 5 and 6).
-		if got := m.hits("/"); got != 2 {
-			t.Errorf("login hits = %d, want 2", got)
+		if got := m.hits("/"); got != 1 {
+			t.Errorf("login (step1) hits = %d, want 1 (no second login in new flow)", got)
 		}
-		if got := m.hits("/method/calls.getAnonymousAccessTokenPayload"); got != 1 {
+		if got := m.hits("/method/calls.getCallPreview"); got != 1 {
 			t.Errorf("step2 hits = %d, want 1", got)
 		}
 		if got := m.hits("/method/calls.getAnonymousToken"); got != 1 {
-			t.Errorf("step4 hits = %d, want 1", got)
+			t.Errorf("step3 hits = %d, want 1", got)
 		}
 		if got := m.hits("/fb.do"); got != 2 {
-			t.Errorf("ok hits = %d, want 2", got)
+			t.Errorf("/fb.do hits = %d, want 2", got)
 		}
 	}
 }
@@ -220,10 +220,27 @@ func TestProvider_InvalidLink(t *testing.T) {
 	}
 }
 
-func TestProvider_CaptchaRequired_StringForm(t *testing.T) {
+func TestProvider_CaptchaRequired_NoSolver(t *testing.T) {
+	// step3 returns captcha; without WithCaptchaSolver, the provider
+	// must surface ErrCaptchaRequired so the embedder can decide.
 	m := newMockVKServer(t)
 	m.register("/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"error": "need_captcha"})
+		writeJSON(w, map[string]any{
+			"data": map[string]any{"access_token": "tok1"},
+		})
+	})
+	m.register("/method/calls.getCallPreview", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"response": map[string]any{}})
+	})
+	m.register("/method/calls.getAnonymousToken", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"error": map[string]any{
+				"error_code":  14,
+				"error_msg":   "Captcha needed",
+				"captcha_sid": "test-sid",
+				"captcha_img": "https://example/captcha.png",
+			},
+		})
 	})
 	p := vk.New(vk.WithHostsForTest(m.URL, m.URL, m.URL))
 
@@ -233,21 +250,94 @@ func TestProvider_CaptchaRequired_StringForm(t *testing.T) {
 	}
 }
 
-func TestProvider_CaptchaRequired_ObjectForm_VKCode14(t *testing.T) {
+func TestProvider_CaptchaRequired_WithSolver(t *testing.T) {
+	// step3 returns captcha; with WithCaptchaSolver, the provider
+	// retries with captcha_sid + captcha_key and the second response
+	// is a successful token.
 	m := newMockVKServer(t)
 	m.register("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
-			"error": map[string]any{
-				"error_code": 14,
-				"error_msg":  "Captcha needed",
-			},
+			"data": map[string]any{"access_token": "tok1"},
 		})
 	})
-	p := vk.New(vk.WithHostsForTest(m.URL, m.URL, m.URL))
+	m.register("/method/calls.getCallPreview", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"response": map[string]any{}})
+	})
+	step3Calls := atomic.Int32{}
+	m.register("/method/calls.getAnonymousToken", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		n := step3Calls.Add(1)
+		if n == 1 {
+			writeJSON(w, map[string]any{
+				"error": map[string]any{
+					"error_code":  14,
+					"error_msg":   "Captcha needed",
+					"captcha_sid": "test-sid",
+					"captcha_img": "https://example/captcha.png",
+				},
+			})
+			return
+		}
+		// Second attempt — verify captcha fields present
+		if r.FormValue("captcha_sid") != "test-sid" {
+			t.Errorf("retry captcha_sid=%q", r.FormValue("captcha_sid"))
+		}
+		if r.FormValue("captcha_key") != "BANANA" {
+			t.Errorf("retry captcha_key=%q", r.FormValue("captcha_key"))
+		}
+		writeJSON(w, map[string]any{
+			"response": map[string]any{"token": "tok2-after-captcha"},
+		})
+	})
+	okCalls := atomic.Int32{}
+	m.register("/fb.do", func(w http.ResponseWriter, r *http.Request) {
+		switch okCalls.Add(1) {
+		case 1:
+			writeJSON(w, map[string]any{"session_key": "sess-1"})
+		case 2:
+			_ = r.ParseForm()
+			if r.FormValue("anonymToken") != "tok2-after-captcha" {
+				t.Errorf("step5 used wrong anonymToken: %q", r.FormValue("anonymToken"))
+			}
+			writeJSON(w, map[string]any{
+				"turn_server": map[string]any{
+					"username":   "u",
+					"credential": "p",
+					"urls":       []any{"turn:99.99.99.99:3478"},
+				},
+			})
+		}
+	})
 
-	_, err := p.Fetch(context.Background(), "abc123", 0)
-	if !errors.Is(err, wgturn.ErrCaptchaRequired) {
-		t.Errorf("err = %v, want ErrCaptchaRequired", err)
+	solverCalls := atomic.Int32{}
+	solver := vk.SolverFunc(func(ctx context.Context, ch vk.CaptchaChallenge) (vk.Solution, error) {
+		solverCalls.Add(1)
+		if ch.SID != "test-sid" {
+			t.Errorf("solver got SID=%q", ch.SID)
+		}
+		if ch.ImgURL != "https://example/captcha.png" {
+			t.Errorf("solver got ImgURL=%q", ch.ImgURL)
+		}
+		return vk.Solution{Key: "BANANA"}, nil
+	})
+
+	p := vk.New(
+		vk.WithHostsForTest(m.URL, m.URL, m.URL),
+		vk.WithCaptchaSolver(solver),
+	)
+
+	got, err := p.Fetch(context.Background(), "abc123", 0)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got.ServerAddr != "99.99.99.99:3478" {
+		t.Errorf("ServerAddr = %q", got.ServerAddr)
+	}
+	if step3Calls.Load() != 2 {
+		t.Errorf("step3 calls = %d, want 2 (one challenge, one solved)", step3Calls.Load())
+	}
+	if solverCalls.Load() != 1 {
+		t.Errorf("solver calls = %d, want 1", solverCalls.Load())
 	}
 }
 

@@ -185,10 +185,56 @@ make GO=/tmp/go-toolchain/go/bin/go test
 ## VK provider (real credentials)
 
 `pkg/wgturn/provider/vk` fetches anonymous TURN credentials from VK
-Calls' public API given a regular invite link. It performs a
-six-step token dance and rotates browser User-Agent + Sec-CH-UA hints
-across calls. **No** uTLS / browser-fingerprint dependencies — pure
-`net/http` + `encoding/json`, so the dependency tree stays clean.
+Calls' public API given a regular invite link. The 5-step flow
+(matching `kiper292/wireguard-turn-android` v=5.275) is:
+
+1. `login.vk.ru/?act=get_anonym_token` → primary anonymous token
+2. `api.vk.ru/method/calls.getCallPreview` (best-effort fingerprinting step)
+3. `api.vk.ru/method/calls.getAnonymousToken` → call-scoped token (**captcha-gated**)
+4. `calls.okcdn.ru/fb.do auth.anonymLogin` → OK CDN session_key
+5. `calls.okcdn.ru/fb.do vchat.joinConversationByLink` → TURN credentials
+
+To pass VK's bot heuristics the provider:
+
+- Uses [`refraction-networking/utls`](https://github.com/refraction-networking/utls)
+  for the TLS handshake, mimicking Chrome 133 JA3. Without this the
+  default Go `crypto/tls` fingerprint trips an immediate captcha
+  even before any HTTP-level checks.
+- Sends the full Chrome cross-origin POST header set (`sec-ch-ua*`,
+  `Sec-Fetch-*`, `Origin`, `Referer`, `Accept-Encoding: gzip, deflate, br, zstd`).
+- Decompresses gzip / deflate / brotli / zstd response bodies in the
+  custom Transport (stdlib's auto-decompression doesn't apply to our
+  utls path).
+- Rotates UA + Sec-CH-UA hints across the small "modern desktop browser"
+  pool in `profiles.go`.
+
+### Captcha handling
+
+VK currently gates step 3 (`calls.getAnonymousToken`) behind a captcha
+for every fresh anonymous request. The provider supports it via
+`vk.WithCaptchaSolver(...)`:
+
+```go
+type CaptchaSolver interface {
+    Solve(ctx context.Context, ch CaptchaChallenge) (Solution, error)
+}
+```
+
+Inputs (`CaptchaChallenge`): `SID`, `ImgURL` (text-captcha image),
+`RedirectURI` (slider-captcha page), `Attempt`. Outputs (`Solution`):
+either `Key` (typed text from `ImgURL`) or `SuccessToken` (from the
+slider page). The library does **not** ship a solver — embedders
+choose how to surface the challenge (terminal prompt, mobile UI,
+2captcha API, 2captcha-style services, etc.).
+
+**Important caveat**: VK currently rotates between text and slider
+captcha modes. Slider mode requires a JS/DOM solver (out of scope for
+the core; see `kiper292/wireguard-turn-android` `slider_captcha.go`
+for ~600 LOC of reference). When VK is in text-captcha mode (which
+happens periodically), the bundled stdio solver in `cmd/wgturn-cli`
+works end-to-end.
+
+### Usage
 
 ```go
 import (
@@ -202,7 +248,10 @@ cfg := wgturn.Config{
     Streams:    4,
     Mode:       wgturn.ModeVKLink,
     Hint:       "https://vk.com/call/join/abcdef",   // call invite
-    Provider:   vk.New(vk.WithLogger(myLogger)),
+    Provider: vk.New(
+        vk.WithLogger(myLogger),
+        vk.WithCaptchaSolver(myStdioSolver{}),       // stdin/stdout prompt, etc.
+    ),
     Protector:  wgturn.NoopProtector{},
 }
 ```

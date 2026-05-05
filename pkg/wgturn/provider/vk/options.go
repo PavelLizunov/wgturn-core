@@ -64,3 +64,19 @@ func WithHostsForTest(login, api, ok string) Option {
 		}
 	}
 }
+
+// WithCaptchaSolver wires a CaptchaSolver. Without it, the provider
+// returns wgturn.ErrCaptchaRequired (via rejectingSolver) when VK
+// asks for a captcha, and the calling Tunnel can never complete its
+// handshake.
+//
+// As of 2026-Q2 VK gates calls.getAnonymousToken on a captcha for
+// every fresh anonymous request from any IP, so a solver is
+// effectively mandatory for this provider to be useful in production.
+func WithCaptchaSolver(s CaptchaSolver) Option {
+	return func(p *Provider) {
+		if s != nil {
+			p.captcha = s
+		}
+	}
+}

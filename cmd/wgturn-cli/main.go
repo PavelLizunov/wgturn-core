@@ -18,6 +18,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,6 +35,46 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
 )
+
+// stdioCaptchaSolver prints the captcha URL to stderr and reads the
+// answer from stdin. Sufficient for terminal use; mobile/headless
+// callers ship their own CaptchaSolver implementation.
+type stdioCaptchaSolver struct{}
+
+func (stdioCaptchaSolver) Solve(ctx context.Context, ch vk.CaptchaChallenge) (vk.Solution, error) {
+	fmt.Fprintf(os.Stderr,
+		"\n══════════════════════════════════════════════════════════════════\n"+
+			"VK requires a captcha to issue the call-scoped token.\n"+
+			"Open this image in any browser:\n\n  %s\n\n"+
+			"Then type the characters you see and press Enter.\n"+
+			"(attempt %d, sid=%s)\n══════════════════════════════════════════════════════════════════\n> ",
+		ch.ImgURL, ch.Attempt, ch.SID)
+	type result struct {
+		key string
+		err error
+	}
+	ch1 := make(chan result, 1)
+	go func() {
+		s := bufio.NewScanner(os.Stdin)
+		if s.Scan() {
+			ch1 <- result{key: strings.TrimSpace(s.Text())}
+			return
+		}
+		ch1 <- result{err: s.Err()}
+	}()
+	select {
+	case <-ctx.Done():
+		return vk.Solution{}, ctx.Err()
+	case r := <-ch1:
+		if r.err != nil {
+			return vk.Solution{}, fmt.Errorf("read stdin: %w", r.err)
+		}
+		if r.key == "" {
+			return vk.Solution{}, fmt.Errorf("empty captcha key")
+		}
+		return vk.Solution{Key: r.key}, nil
+	}
+}
 
 func main() {
 	var (
@@ -168,7 +210,10 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 	// then stub, then config-file Hint (for ModeVKLink).
 	switch {
 	case a.vkLink != "":
-		cfg.Provider = vk.New(vk.WithLogger(a.logger))
+		cfg.Provider = vk.New(
+			vk.WithLogger(a.logger),
+			vk.WithCaptchaSolver(stdioCaptchaSolver{}),
+		)
 		cfg.Mode = wgturn.ModeVKLink
 		cfg.Hint = a.vkLink
 
@@ -183,7 +228,10 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 
 	case cfg.Hint != "" && cfg.Mode == wgturn.ModeVKLink:
 		// File-driven: VkLink came from #@wgt:VkLink.
-		cfg.Provider = vk.New(vk.WithLogger(a.logger))
+		cfg.Provider = vk.New(
+			vk.WithLogger(a.logger),
+			vk.WithCaptchaSolver(stdioCaptchaSolver{}),
+		)
 
 	default:
 		return cfg, errors.New("no credentials provider configured: " +
