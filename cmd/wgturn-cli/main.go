@@ -31,6 +31,7 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgconf"
 	"github.com/slovn/wgturn-core/pkg/wgturn"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
+	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 func main() {
@@ -43,6 +44,10 @@ func main() {
 			"peer type: proxy_v2 / proxy_v1 / wireguard")
 		watchdog = flag.Duration("watchdog", 0, "stream watchdog timeout (0 disables)")
 		udp      = flag.Bool("udp", false, "dial TURN over UDP instead of TCP")
+
+		// VK provider parameters.
+		vkLink = flag.String("vk-link", "",
+			"VK Calls invite link (https://vk.com/call/join/<id>) — selects the VK provider")
 
 		// Stub-provider parameters: useful for local testing.
 		stubUser   = flag.String("stub-user", "", "stub provider TURN username")
@@ -67,6 +72,7 @@ func main() {
 		peerType:   *peerType,
 		watchdog:   *watchdog,
 		udp:        *udp,
+		vkLink:     *vkLink,
 		stubUser:   *stubUser,
 		stubPass:   *stubPass,
 		stubServer: *stubServer,
@@ -114,6 +120,7 @@ type buildArgs struct {
 	peerType   string
 	watchdog   time.Duration
 	udp        bool
+	vkLink     string
 	stubUser   string
 	stubPass   string
 	stubServer string
@@ -157,7 +164,14 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 		cfg.UDP = a.udp
 	}
 
+	// Provider selection: VK takes priority if -vk-link is given,
+	// then stub, then config-file Hint (for ModeVKLink).
 	switch {
+	case a.vkLink != "":
+		cfg.Provider = vk.New(vk.WithLogger(a.logger))
+		cfg.Mode = wgturn.ModeVKLink
+		cfg.Hint = a.vkLink
+
 	case a.stubUser != "" || a.stubPass != "" || a.stubServer != "":
 		if a.stubUser == "" || a.stubPass == "" || a.stubServer == "" {
 			return cfg, errors.New("stub provider requires -stub-user, -stub-pass, -stub-server together")
@@ -166,9 +180,15 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 		if cfg.Mode == "" {
 			cfg.Mode = wgturn.ModeStub
 		}
+
+	case cfg.Hint != "" && cfg.Mode == wgturn.ModeVKLink:
+		// File-driven: VkLink came from #@wgt:VkLink.
+		cfg.Provider = vk.New(vk.WithLogger(a.logger))
+
 	default:
-		return cfg, errors.New("no credentials provider; pass -stub-* flags " +
-			"(real VK/WB providers are not yet bundled)")
+		return cfg, errors.New("no credentials provider configured: " +
+			"pass -vk-link <url> for VK, or -stub-{user,pass,server} for tests, " +
+			"or use a config file with #@wgt:Mode = vk_link + #@wgt:VkLink = ...")
 	}
 
 	return cfg, nil

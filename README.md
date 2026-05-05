@@ -30,6 +30,8 @@ pkg/
                        CredentialsProvider, Stats. Stable surface; subpackages
                        under provider/ host concrete creds providers.
     provider/stub/     Trivial fixed-creds provider for tests and smoke runs.
+    provider/vk/       Real VK Calls provider — fetches anonymous TURN
+                       creds from a vk.com/call/join/<id> link.
   wgconf/              Parser for #@wgt: metadata in WireGuard .conf files
                        (the kiper292/wireguard-turn-android convention).
 
@@ -177,14 +179,51 @@ make cli        # bin/wgturn-cli
 make GO=/tmp/go-toolchain/go/bin/go test
 ```
 
-## What's NOT in v0.0.1-alpha
+## VK provider (real credentials)
 
-- Real `vk_link` and `wb` credentials providers. These ship next as
-  separate sub-modules so the core dependency surface stays small (the
-  upstream uses `bogdanfinn/tls-client` + utls fork for browser-fingerprint
-  bypass, ~12 transitive deps; we keep that out of the core build).
+`pkg/wgturn/provider/vk` fetches anonymous TURN credentials from VK
+Calls' public API given a regular invite link. It performs a
+six-step token dance and rotates browser User-Agent + Sec-CH-UA hints
+across calls. **No** uTLS / browser-fingerprint dependencies — pure
+`net/http` + `encoding/json`, so the dependency tree stays clean.
+
+```go
+import (
+    "github.com/slovn/wgturn-core/pkg/wgturn"
+    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+)
+
+cfg := wgturn.Config{
+    PeerAddr:   "vps.example.com:56000",
+    ListenAddr: "127.0.0.1:9000",
+    Streams:    4,
+    Mode:       wgturn.ModeVKLink,
+    Hint:       "https://vk.com/call/join/abcdef",   // call invite
+    Provider:   vk.New(vk.WithLogger(myLogger)),
+    Protector:  wgturn.NoopProtector{},
+}
+```
+
+CLI:
+
+```sh
+wgturn-cli -peer vps.example.com:56000 \
+           -vk-link https://vk.com/call/join/abcdef \
+           -streams 4
+```
+
+**Captcha handling.** When VK challenges a request the provider returns
+`wgturn.ErrCaptchaRequired`. The library does not solve captchas —
+embedders are expected to surface this to the user (UI prompt, retry
+later, manual override, etc.). A solver may land later as
+`pkg/wgturn/provider/vk/captcha`, kept opt-in to avoid pulling the
+upstream's `bogdanfinn/tls-client` + uTLS dep tree into core.
+
+## What's NOT yet in v0.0.1-alpha
+
+- WB Stream API provider (analogous to VK's, different upstream).
 - DNS-cascade resolver (kiper292's UDP→DoH→DoT failover for credential
-  fetches over a VPN). It will live next to the providers that need it.
+  fetches over a VPN). Lands when we test on Android.
 - gomobile bindings (Android `.aar` / iOS `.xcframework`). They are
   trivial wrappers around `pkg/wgturn`; will land as a sibling repo.
 - A full `pkg/wgkernel` that bundles `wireguard-go` userspace into the
