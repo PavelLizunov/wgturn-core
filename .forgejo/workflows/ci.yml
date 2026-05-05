@@ -36,13 +36,16 @@ jobs:
       - name: vet
         run: go vet ./...
 
-      # Race-detector run requires CGO; ubuntu-latest has gcc by default.
-      - name: test (race + coverage)
+      # NOTE: -race is intentionally NOT enabled in CI. The default
+      # node:22-bookworm runner image has no gcc, so cgo-dependent
+      # builds (which -race requires) hang in obscure ways inside
+      # act's process management. Local devs can run `make race`.
+      # Re-enable here once we have a runner image with gcc + libc-dev.
+      - name: test (coverage)
         env:
-          CGO_ENABLED: "1"
+          CGO_ENABLED: "0"
         run: |
           go test ./... \
-            -race \
             -timeout 120s \
             -coverprofile=coverage.out \
             -covermode=atomic
