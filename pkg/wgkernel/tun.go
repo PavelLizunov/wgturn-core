@@ -57,8 +57,9 @@ func NewTUNFromFD(fd int, _ int) (tun.Device, string, error) {
 type MemoryTUN struct {
 	name    string
 	mtu     int
-	in      chan []byte // packets to be read by the device's caller
-	out     chan []byte // packets written by the device's caller
+	in      chan []byte   // packets to be read by the device's caller
+	out     chan []byte   // packets written by the device's caller
+	done    chan struct{} // closed on Close — unblocks Read immediately
 	events  chan tun.Event
 	closed  atomic.Bool
 	closeMu sync.Mutex
@@ -86,6 +87,7 @@ func NewMemoryTUNPair(name string, mtu, buffer int) (a, b *MemoryTUN) {
 		mtu:    mtu,
 		in:     ba,
 		out:    ab,
+		done:   make(chan struct{}),
 		events: make(chan tun.Event, 1),
 	}
 	b = &MemoryTUN{
@@ -93,6 +95,7 @@ func NewMemoryTUNPair(name string, mtu, buffer int) (a, b *MemoryTUN) {
 		mtu:    mtu,
 		in:     ab,
 		out:    ba,
+		done:   make(chan struct{}),
 		events: make(chan tun.Event, 1),
 	}
 	a.events <- tun.EventUp
@@ -107,13 +110,27 @@ func (m *MemoryTUN) File() *os.File { return nil }
 // MemoryTUN reads at most one packet per call regardless of the
 // caller's BatchSize; this is sufficient for our test shapes and
 // keeps the implementation small.
+//
+// Read blocks until either a packet arrives, the partner's queue is
+// closed (returns os.ErrClosed), or our own Close is called (also
+// returns os.ErrClosed). The local-close signal is critical:
+// wireguard-go's RoutineReadFromTUN holds Read across the whole
+// device lifetime, and device.Close waits for it to unblock — without
+// our own done-channel, closing only the partner's queue isn't
+// enough to free the goroutine.
 func (m *MemoryTUN) Read(bufs [][]byte, sizes []int, offset int) (int, error) {
 	if m.closed.Load() {
 		return 0, os.ErrClosed
 	}
-	pkt, ok := <-m.in
-	if !ok {
+	var pkt []byte
+	var ok bool
+	select {
+	case <-m.done:
 		return 0, os.ErrClosed
+	case pkt, ok = <-m.in:
+		if !ok {
+			return 0, os.ErrClosed
+		}
 	}
 	if len(bufs) == 0 || len(sizes) == 0 {
 		return 0, errors.New("memtun: empty bufs/sizes")
@@ -170,8 +187,9 @@ func (m *MemoryTUN) Close() error {
 	if m.closed.Swap(true) {
 		return nil
 	}
+	close(m.done) // unblock our own pending Read
 	close(m.events)
-	close(m.out)
+	close(m.out) // unblock the partner's pending Read
 	// We do NOT close m.in — the paired MemoryTUN owns its writes.
 	return nil
 }
