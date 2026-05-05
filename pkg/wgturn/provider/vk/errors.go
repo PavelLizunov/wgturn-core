@@ -40,10 +40,9 @@ func (w *captchaErrWrapper) Is(target error) bool {
 // lastCaptchaChallenge unwraps an error chain looking for a
 // captchaErrWrapper. Returns nil if the chain doesn't contain one.
 func lastCaptchaChallenge(err error) *CaptchaChallenge {
-	for cur := err; cur != nil; cur = errors.Unwrap(cur) {
-		if w, ok := cur.(*captchaErrWrapper); ok {
-			return &w.challenge
-		}
+	var w *captchaErrWrapper
+	if errors.As(err, &w) {
+		return &w.challenge
 	}
 	return nil
 }
