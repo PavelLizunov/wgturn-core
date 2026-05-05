@@ -83,14 +83,23 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          # cache: false — Forgejo's cache server times out and setup-go's
-          # restore step hangs the whole workflow. Re-enable when the
-          # internal cache backend is wired up.
-          cache: false
+
+      # Same setup-go bypass as the test job: setup-go@v5 sporadically
+      # leaves go env's child as a defunct zombie that the node wrapper
+      # never reaps, hanging the whole job.
+      - name: install Go
+        run: |
+          GO_VERSION=1.25.5
+          curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+
       - name: install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        run: |
+          export PATH=/usr/local/go/bin:$PATH
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
       - name: lint
-        run: $(go env GOPATH)/bin/golangci-lint run ./...
+        run: |
+          export PATH=/usr/local/go/bin:/root/go/bin:$PATH
+          golangci-lint run ./...
