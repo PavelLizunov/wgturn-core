@@ -25,7 +25,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.25"
-          cache: true
+          # cache: false — see lint job for explanation.
+          cache: false
 
       - name: download
         run: go mod download
