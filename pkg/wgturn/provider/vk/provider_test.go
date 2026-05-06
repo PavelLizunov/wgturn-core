@@ -341,6 +341,132 @@ func TestProvider_CaptchaRequired_WithSolver(t *testing.T) {
 	}
 }
 
+// TestProvider_CaptchaRequired_SuccessToken exercises the not-a-robot
+// redirect path: VK returns redirect_uri + captcha_ts + captcha_attempt,
+// the solver returns SuccessToken, and the retry MUST include the full
+// envelope (success_token, captcha_ts, captcha_attempt, is_sound_captcha=0,
+// empty captcha_key) — anything missing makes VK respond with a fresh
+// challenge instead of advancing.
+func TestProvider_CaptchaRequired_SuccessToken(t *testing.T) {
+	const (
+		wantSID     = "535662358251"
+		wantTS      = "1778064843"
+		wantAttempt = "1"
+		wantToken   = "fake.success.JWT.payload"
+	)
+	m := newMockVKServer(t)
+	m.register("/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"data": map[string]any{"access_token": "tok1"},
+		})
+	})
+	m.register("/method/calls.getCallPreview", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"response": map[string]any{}})
+	})
+	step3Calls := atomic.Int32{}
+	m.register("/method/calls.getAnonymousToken", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		n := step3Calls.Add(1)
+		if n == 1 {
+			writeJSON(w, map[string]any{
+				"error": map[string]any{
+					"error_code":      14,
+					"error_msg":       "Captcha needed",
+					"captcha_sid":     wantSID,
+					"captcha_img":     "https://vk.ru/captcha.php?sid=" + wantSID,
+					"redirect_uri":    "https://id.vk.ru/not_robot_captcha?session_token=xyz",
+					"captcha_ts":      wantTS,
+					"captcha_attempt": 1.0,
+				},
+			})
+			return
+		}
+		// Second attempt — verify the slider-mode envelope.
+		if got := r.FormValue("captcha_sid"); got != wantSID {
+			t.Errorf("retry captcha_sid=%q, want %q", got, wantSID)
+		}
+		if got := r.FormValue("success_token"); got != wantToken {
+			t.Errorf("retry success_token=%q, want %q", got, wantToken)
+		}
+		if got := r.FormValue("captcha_ts"); got != wantTS {
+			t.Errorf("retry captcha_ts=%q, want %q", got, wantTS)
+		}
+		if got := r.FormValue("captcha_attempt"); got != wantAttempt {
+			t.Errorf("retry captcha_attempt=%q, want %q", got, wantAttempt)
+		}
+		if got := r.FormValue("is_sound_captcha"); got != "0" {
+			t.Errorf("retry is_sound_captcha=%q, want %q", got, "0")
+		}
+		// captcha_key MUST be present and empty — VK uses presence to
+		// route to the slider-token validator rather than the legacy
+		// image-OCR path.
+		if _, ok := r.PostForm["captcha_key"]; !ok {
+			t.Errorf("retry missing captcha_key (must be present empty)")
+		}
+		if got := r.FormValue("captcha_key"); got != "" {
+			t.Errorf("retry captcha_key=%q, want empty string", got)
+		}
+		// captcha_token (legacy field) MUST NOT be sent in the redirect flow.
+		if got := r.FormValue("captcha_token"); got != "" {
+			t.Errorf("retry leaked legacy captcha_token=%q", got)
+		}
+		writeJSON(w, map[string]any{
+			"response": map[string]any{"token": "tok2-after-captcha"},
+		})
+	})
+	okCalls := atomic.Int32{}
+	m.register("/fb.do", func(w http.ResponseWriter, r *http.Request) {
+		switch okCalls.Add(1) {
+		case 1:
+			writeJSON(w, map[string]any{"session_key": "sess-1"})
+		case 2:
+			writeJSON(w, map[string]any{
+				"turn_server": map[string]any{
+					"username":   "u",
+					"credential": "p",
+					"urls":       []any{"turn:99.99.99.99:3478"},
+				},
+			})
+		}
+	})
+
+	solverCalls := atomic.Int32{}
+	solver := vk.SolverFunc(func(ctx context.Context, ch vk.CaptchaChallenge) (vk.Solution, error) {
+		solverCalls.Add(1)
+		if ch.SID != wantSID {
+			t.Errorf("solver got SID=%q, want %q", ch.SID, wantSID)
+		}
+		if ch.RedirectURI == "" {
+			t.Errorf("solver got empty RedirectURI")
+		}
+		if ch.TS != wantTS {
+			t.Errorf("solver got TS=%q, want %q", ch.TS, wantTS)
+		}
+		if ch.Attempt != 1 {
+			t.Errorf("solver got Attempt=%d, want 1", ch.Attempt)
+		}
+		return vk.Solution{SuccessToken: wantToken}, nil
+	})
+
+	p := vk.New(
+		vk.WithHostsForTest(m.URL, m.URL, m.URL),
+		vk.WithCaptchaSolver(solver),
+	)
+	got, err := p.Fetch(context.Background(), "abc123", 0)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got.ServerAddr != "99.99.99.99:3478" {
+		t.Errorf("ServerAddr = %q", got.ServerAddr)
+	}
+	if step3Calls.Load() != 2 {
+		t.Errorf("step3 calls = %d, want 2", step3Calls.Load())
+	}
+	if solverCalls.Load() != 1 {
+		t.Errorf("solver calls = %d, want 1", solverCalls.Load())
+	}
+}
+
 func TestProvider_AuthFailure_HTTP401(t *testing.T) {
 	m := newMockVKServer(t)
 	m.register("/", func(w http.ResponseWriter, r *http.Request) {

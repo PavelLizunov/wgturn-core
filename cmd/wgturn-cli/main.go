@@ -34,6 +34,7 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgturn"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
 )
 
 // stdioCaptchaSolver prints the captcha URL to stderr and reads the
@@ -90,6 +91,11 @@ func main() {
 		// VK provider parameters.
 		vkLink = flag.String("vk-link", "",
 			"VK Calls invite link (https://vk.com/call/join/<id>) — selects the VK provider")
+		vkChromeURL = flag.String("vk-chrome-url", "",
+			"Chrome DevTools URL (e.g. http://192.168.0.142:9222) — enables the CDP captcha solver. "+
+				"Without this flag captchas are read from stdin (slider mode will fail).")
+		vkChromeUA = flag.String("vk-chrome-ua", "",
+			"Override navigator.userAgent in the captcha tab (default: whatever Chrome launched with)")
 
 		// Stub-provider parameters: useful for local testing.
 		stubUser   = flag.String("stub-user", "", "stub provider TURN username")
@@ -107,18 +113,20 @@ func main() {
 	}
 
 	cfg, err := buildConfig(buildArgs{
-		configPath: *configPath,
-		peer:       *peer,
-		listen:     *listen,
-		streams:    *streams,
-		peerType:   *peerType,
-		watchdog:   *watchdog,
-		udp:        *udp,
-		vkLink:     *vkLink,
-		stubUser:   *stubUser,
-		stubPass:   *stubPass,
-		stubServer: *stubServer,
-		logger:     logger,
+		configPath:   *configPath,
+		peer:         *peer,
+		listen:       *listen,
+		streams:      *streams,
+		peerType:     *peerType,
+		watchdog:     *watchdog,
+		udp:          *udp,
+		vkLink:       *vkLink,
+		vkChromeURL:  *vkChromeURL,
+		vkChromeUA:   *vkChromeUA,
+		stubUser:     *stubUser,
+		stubPass:     *stubPass,
+		stubServer:   *stubServer,
+		logger:       logger,
 	})
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -155,18 +163,35 @@ func main() {
 }
 
 type buildArgs struct {
-	configPath string
-	peer       string
-	listen     string
-	streams    int
-	peerType   string
-	watchdog   time.Duration
-	udp        bool
-	vkLink     string
-	stubUser   string
-	stubPass   string
-	stubServer string
-	logger     wgturn.Logger
+	configPath   string
+	peer         string
+	listen       string
+	streams      int
+	peerType     string
+	watchdog     time.Duration
+	udp          bool
+	vkLink       string
+	vkChromeURL  string
+	vkChromeUA   string
+	stubUser     string
+	stubPass     string
+	stubServer   string
+	logger       wgturn.Logger
+}
+
+// pickCaptchaSolver returns a CDP-driven solver if the CLI was given a
+// Chrome URL, otherwise falls back to the stdio prompt. The CDP solver
+// is the only one that can pass slider-mode captchas, which VK enforces
+// in 2026.
+func pickCaptchaSolver(chromeURL, ua string, log wgturn.Logger) vk.CaptchaSolver {
+	if chromeURL == "" {
+		return stdioCaptchaSolver{}
+	}
+	return &captchasolve.CDPSolver{
+		ChromeURL: chromeURL,
+		UserAgent: ua,
+		Logger:    log,
+	}
 }
 
 // buildConfig resolves the user's flags / config file into a wgturn.Config.
@@ -212,7 +237,7 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 	case a.vkLink != "":
 		cfg.Provider = vk.New(
 			vk.WithLogger(a.logger),
-			vk.WithCaptchaSolver(stdioCaptchaSolver{}),
+			vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
 		)
 		cfg.Mode = wgturn.ModeVKLink
 		cfg.Hint = a.vkLink
@@ -230,7 +255,7 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 		// File-driven: VkLink came from #@wgt:VkLink.
 		cfg.Provider = vk.New(
 			vk.WithLogger(a.logger),
-			vk.WithCaptchaSolver(stdioCaptchaSolver{}),
+			vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
 		)
 
 	default:

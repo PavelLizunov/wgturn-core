@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
+	github.com/coder/websocket v1.8.13 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/stun/v3 v3.1.1 // indirect

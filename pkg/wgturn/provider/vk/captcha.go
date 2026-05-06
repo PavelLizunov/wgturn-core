@@ -24,12 +24,19 @@ type CaptchaChallenge struct {
 
 	// RedirectURI is VK's "not-a-robot" challenge endpoint (slider
 	// captcha + advanced fingerprinting). Solving this form yields
-	// a `success_token` that bypasses the textual captcha; out of
-	// scope for this minimal solver.
+	// a `success_token` that bypasses the textual captcha.
 	RedirectURI string
 
 	// Attempt is 1 on the first challenge, increments per retry.
+	// Echoed back as `captcha_attempt` on the retry — VK won't
+	// accept the success_token without it.
 	Attempt int
+
+	// TS is the captcha-issued-at timestamp from VK's error envelope
+	// (`captcha_ts`). Empty for legacy text-only captchas. Echoed
+	// back verbatim on the retry; VK uses it to scope the solution
+	// to the original challenge.
+	TS string
 }
 
 // captchaNeededMsg is VK's error_msg for code-14 challenges. Pulled
@@ -79,8 +86,8 @@ func (rejectingSolver) Solve(_ context.Context, _ CaptchaChallenge) (Solution, e
 }
 
 // extractCaptcha walks an "error" object as returned by VK and pulls
-// out captcha_sid / captcha_img / redirect_uri. Returns nil if the
-// error block is not a captcha challenge.
+// out captcha_sid / captcha_img / redirect_uri / captcha_ts. Returns
+// nil if the error block is not a captcha challenge.
 func extractCaptcha(errObj map[string]any) *CaptchaChallenge {
 	code, _ := errObj["error_code"].(float64)
 	msg, _ := errObj["error_msg"].(string)
@@ -95,19 +102,56 @@ func extractCaptcha(errObj map[string]any) *CaptchaChallenge {
 		return nil
 	}
 	attempt := 1
-	if v, ok := errObj["captcha_attempt"].(float64); ok {
+	switch v := errObj["captcha_attempt"].(type) {
+	case float64:
 		attempt = int(v)
+	case string:
+		// VK sometimes serialises this as a quoted string.
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			attempt = n
+		}
+	}
+	// captcha_ts is a unix timestamp or float; we keep it as a
+	// string for byte-exact echo back to VK.
+	var ts string
+	switch v := errObj["captcha_ts"].(type) {
+	case string:
+		ts = v
+	case float64:
+		// JSON "1234567890" parses as float64 in encoding/json. Round
+		// to nearest integer to avoid scientific notation.
+		ts = fmt.Sprintf("%d", int64(v))
 	}
 	return &CaptchaChallenge{
 		SID:         sid,
 		ImgURL:      img,
 		RedirectURI: redirect,
 		Attempt:     attempt,
+		TS:          ts,
 	}
 }
 
-// applySolution mutates the form values to include captcha_sid +
-// captcha_key (or captcha_token) so the retry passes VK's gate.
+// applySolution mutates the form values to include the captcha
+// solution fields VK expects on retry.
+//
+// For the not-a-robot redirect flow (sol.SuccessToken is set):
+//
+//   - captcha_sid: from the original error envelope
+//   - captcha_ts: ditto, echoed verbatim
+//   - captcha_attempt: ditto, echoed verbatim
+//   - is_sound_captcha: 0 (we always solve via the slider/checkbox path)
+//   - captcha_key: empty (VK uses presence to disambiguate from text mode)
+//   - success_token: URL-escaped JWT from captchaNotRobot.check
+//
+// For the legacy text captcha flow (sol.Key is set):
+//
+//   - captcha_sid + captcha_key only (mirrors the historical API).
+//
+// Field names match cacggghp/vk-turn-proxy's getTokenChain — VK
+// rejects the success_token if any of {captcha_ts, captcha_attempt,
+// is_sound_captcha, empty captcha_key} are missing, replying with a
+// fresh challenge instead of advancing the flow.
 func applySolution(form interface{ Set(k, v string) }, ch CaptchaChallenge, sol Solution) error {
 	if ch.SID == "" {
 		return fmt.Errorf("captcha SID is empty")
@@ -115,7 +159,15 @@ func applySolution(form interface{ Set(k, v string) }, ch CaptchaChallenge, sol 
 	form.Set("captcha_sid", ch.SID)
 	switch {
 	case sol.SuccessToken != "":
-		form.Set("captcha_token", sol.SuccessToken)
+		form.Set("captcha_key", "")
+		form.Set("is_sound_captcha", "0")
+		form.Set("success_token", sol.SuccessToken)
+		if ch.TS != "" {
+			form.Set("captcha_ts", ch.TS)
+		}
+		if ch.Attempt > 0 {
+			form.Set("captcha_attempt", fmt.Sprintf("%d", ch.Attempt))
+		}
 	case sol.Key != "":
 		form.Set("captcha_key", sol.Key)
 	default:
