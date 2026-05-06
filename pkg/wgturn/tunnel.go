@@ -62,6 +62,12 @@ func (t *Tunnel) Start(ctx context.Context) error {
 	hubCtx, cancel := context.WithCancel(context.Background())
 	t.cancel = cancel
 
+	// Resolve hints: Hints wins if set, else fall back to single Hint.
+	hints := t.cfg.Hints
+	if len(hints) == 0 && t.cfg.Hint != "" {
+		hints = []string{t.cfg.Hint}
+	}
+
 	hubCfg := proxy.HubConfig{
 		PeerAddr:         t.cfg.PeerAddr,
 		ListenAddr:       t.cfg.ListenAddr,
@@ -72,7 +78,7 @@ func (t *Tunnel) Start(ctx context.Context) error {
 		TURNPortOverride: t.cfg.TURNPortOverride,
 		StreamsPerCred:   t.cfg.StreamsPerCred,
 		WatchdogTimeout:  t.cfg.WatchdogTimeout,
-		Hint:             t.cfg.Hint,
+		Hints:            hints,
 		Provider:         providerAdapter{t.cfg.Provider},
 		Protector:        ControlFunc(t.cfg.Protector),
 		Logger:           loggerAdapter{t.cfg.Logger},

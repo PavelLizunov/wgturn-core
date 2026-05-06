@@ -58,6 +58,19 @@ func NewHub(cfg HubConfig) (*Hub, error) {
 	}, nil
 }
 
+// hintFor picks the provider hint for a given stream id. Cred-groups
+// are sized at cfg.StreamsPerCred, and groups round-robin through the
+// configured Hints pool. With a single-element pool every group sees
+// the same hint (legacy behaviour). Returns "" when Hints is empty —
+// providers that ignore the hint (e.g. stub) are unaffected.
+func (h *Hub) hintFor(streamID int) string {
+	if len(h.cfg.Hints) == 0 {
+		return ""
+	}
+	groupID := streamID / h.cfg.StreamsPerCred
+	return h.cfg.Hints[groupID%len(h.cfg.Hints)]
+}
+
 // Start brings the Hub up. It returns once the local UDP listener is
 // bound and the streams are spawned; readiness of any individual stream
 // is signalled via Ready().

@@ -95,7 +95,8 @@ func (s *stream) runOnce(ctx context.Context, sessionID []byte, cert *tls.Certif
 	logger := cfg.Logger
 	logger.Debugf("[stream %d] fetching credentials", s.id)
 
-	cr, err := s.hub.creds.Get(ctx, cfg.Hint, s.id, credsAdapter{cfg.Provider})
+	hint := s.hub.hintFor(s.id)
+	cr, err := s.hub.creds.Get(ctx, hint, s.id, credsAdapter{cfg.Provider})
 	if err != nil {
 		return fmt.Errorf("creds: %w", err)
 	}

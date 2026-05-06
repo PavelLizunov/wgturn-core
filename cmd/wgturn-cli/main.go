@@ -90,7 +90,10 @@ func main() {
 
 		// VK provider parameters.
 		vkLink = flag.String("vk-link", "",
-			"VK Calls invite link (https://vk.com/call/join/<id>) — selects the VK provider")
+			"VK Calls invite link (https://vk.com/call/join/<id>) — selects the VK provider. "+
+				"Pass multiple comma-separated links to fan out across distinct VK call sessions; "+
+				"each cred-group of streams (-streams / 4 by default) gets the next link round-robin, "+
+				"multiplying per-call bandwidth shaping.")
 		vkChromeURL = flag.String("vk-chrome-url", "",
 			"Chrome DevTools URL (e.g. http://192.168.0.142:9222) — enables the CDP captcha solver. "+
 				"Without this flag captchas are read from stdin (slider mode will fail).")
@@ -179,6 +182,20 @@ type buildArgs struct {
 	logger      wgturn.Logger
 }
 
+// splitLinks parses the -vk-link CLI argument: a single URL, or several
+// URLs joined by commas / whitespace. Empty entries are dropped.
+func splitLinks(raw string) []string {
+	out := make([]string, 0, 4)
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	}) {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // pickCaptchaSolver returns a CDP-driven solver if the CLI was given a
 // Chrome URL, otherwise falls back to the stdio prompt. The CDP solver
 // is the only one that can pass slider-mode captchas, which VK enforces
@@ -240,7 +257,15 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 			vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
 		)
 		cfg.Mode = wgturn.ModeVKLink
-		cfg.Hint = a.vkLink
+		links := splitLinks(a.vkLink)
+		switch len(links) {
+		case 0:
+			return cfg, errors.New("-vk-link is empty after parsing")
+		case 1:
+			cfg.Hint = links[0]
+		default:
+			cfg.Hints = links
+		}
 
 	case a.stubUser != "" || a.stubPass != "" || a.stubServer != "":
 		if a.stubUser == "" || a.stubPass == "" || a.stubServer == "" {

@@ -78,7 +78,24 @@ type Config struct {
 	// Hint is a free-form string passed to CredentialsProvider.Fetch.
 	// For ModeVKLink it is the full https://vk.com/call/join/<id> URL.
 	// For ModeWB it is provider-specific. For ModeStub it is unused.
+	//
+	// If Hints is non-empty it takes precedence over Hint.
 	Hint string
+
+	// Hints is the multi-source variant of Hint: each cred-group of
+	// streams (StreamsPerCred streams share one group) gets the next
+	// hint in round-robin order, so a group of 16 streams across 4
+	// hints fans out to 4 independent provider sessions.
+	//
+	// For ModeVKLink this lets you spread streams across multiple VK
+	// call invite links — each link allocates on (potentially) a
+	// different VK TURN host, multiplying the per-call bandwidth
+	// shaping. Empirically with 4 distinct links × 4 streams each we
+	// see ~3-4× throughput vs a single link with 16 streams.
+	//
+	// Empty Hints + non-empty Hint behaves exactly like the old
+	// single-hint API. Both empty is fine for ModeStub.
+	Hints []string
 
 	// UDP forces TURN transport to UDP. Default false (TCP).
 	UDP bool

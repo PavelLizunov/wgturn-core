@@ -57,10 +57,17 @@ type HubConfig struct {
 	TURNPortOverride int
 	StreamsPerCred   int
 	WatchdogTimeout  time.Duration
-	Hint             string
-	Provider         Provider
-	Protector        ControlFunc
-	Logger           Logger
+
+	// Hints is the round-robin pool of provider hints. Each cred-group
+	// (StreamsPerCred streams) gets `Hints[groupID % len(Hints)]`.
+	// Empty list is fine for ModeStub-style providers that ignore the
+	// hint anyway. Single-element list reproduces the legacy single-
+	// Hint behaviour.
+	Hints []string
+
+	Provider  Provider
+	Protector ControlFunc
+	Logger    Logger
 }
 
 // HubStats is the internal-package counterpart of wgturn.Stats.
