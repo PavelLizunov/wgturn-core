@@ -35,7 +35,30 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
+	"github.com/slovn/wgturn-core/pkg/wgturn/provider/yandex"
 )
+
+// routedProvider dispatches Fetch calls between the VK and Yandex
+// Telemost providers based on the shape of the hint URL.
+//
+//   - Anything with "telemost.yandex." or a "telemost:" prefix → yandex.
+//   - Anything else → vk (the historical default).
+//
+// A single Tunnel can therefore mix VK + Telemost links via
+// wgturn.Config.Hints; cred-groups round-robin through the pool and
+// each group's hint picks the right backend automatically.
+type routedProvider struct {
+	vk     wgturn.CredentialsProvider
+	yandex wgturn.CredentialsProvider
+	logger wgturn.Logger
+}
+
+func (r *routedProvider) Fetch(ctx context.Context, hint string, streamID int) (wgturn.Credentials, error) {
+	if yandex.IsTelemostLink(hint) {
+		return r.yandex.Fetch(ctx, hint, streamID)
+	}
+	return r.vk.Fetch(ctx, hint, streamID)
+}
 
 // stdioCaptchaSolver prints the captcha URL to stderr and reads the
 // answer from stdin. Sufficient for terminal use; mobile/headless
@@ -252,10 +275,14 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 	// then stub, then config-file Hint (for ModeVKLink).
 	switch {
 	case a.vkLink != "":
-		cfg.Provider = vk.New(
-			vk.WithLogger(a.logger),
-			vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
-		)
+		cfg.Provider = &routedProvider{
+			vk: vk.New(
+				vk.WithLogger(a.logger),
+				vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
+			),
+			yandex: yandex.New(yandex.WithLogger(a.logger)),
+			logger: a.logger,
+		}
 		cfg.Mode = wgturn.ModeVKLink
 		links := splitLinks(a.vkLink)
 		switch len(links) {
@@ -277,11 +304,17 @@ func buildConfig(a buildArgs) (wgturn.Config, error) {
 		}
 
 	case cfg.Hint != "" && cfg.Mode == wgturn.ModeVKLink:
-		// File-driven: VkLink came from #@wgt:VkLink.
-		cfg.Provider = vk.New(
-			vk.WithLogger(a.logger),
-			vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
-		)
+		// File-driven: VkLink came from #@wgt:VkLink. Route through
+		// the same multi-provider dispatcher so a Telemost URL in the
+		// config file works without further plumbing.
+		cfg.Provider = &routedProvider{
+			vk: vk.New(
+				vk.WithLogger(a.logger),
+				vk.WithCaptchaSolver(pickCaptchaSolver(a.vkChromeURL, a.vkChromeUA, a.logger)),
+			),
+			yandex: yandex.New(yandex.WithLogger(a.logger)),
+			logger: a.logger,
+		}
 
 	default:
 		return cfg, errors.New("no credentials provider configured: " +
