@@ -113,20 +113,20 @@ func main() {
 	}
 
 	cfg, err := buildConfig(buildArgs{
-		configPath:   *configPath,
-		peer:         *peer,
-		listen:       *listen,
-		streams:      *streams,
-		peerType:     *peerType,
-		watchdog:     *watchdog,
-		udp:          *udp,
-		vkLink:       *vkLink,
-		vkChromeURL:  *vkChromeURL,
-		vkChromeUA:   *vkChromeUA,
-		stubUser:     *stubUser,
-		stubPass:     *stubPass,
-		stubServer:   *stubServer,
-		logger:       logger,
+		configPath:  *configPath,
+		peer:        *peer,
+		listen:      *listen,
+		streams:     *streams,
+		peerType:    *peerType,
+		watchdog:    *watchdog,
+		udp:         *udp,
+		vkLink:      *vkLink,
+		vkChromeURL: *vkChromeURL,
+		vkChromeUA:  *vkChromeUA,
+		stubUser:    *stubUser,
+		stubPass:    *stubPass,
+		stubServer:  *stubServer,
+		logger:      logger,
 	})
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -163,20 +163,20 @@ func main() {
 }
 
 type buildArgs struct {
-	configPath   string
-	peer         string
-	listen       string
-	streams      int
-	peerType     string
-	watchdog     time.Duration
-	udp          bool
-	vkLink       string
-	vkChromeURL  string
-	vkChromeUA   string
-	stubUser     string
-	stubPass     string
-	stubServer   string
-	logger       wgturn.Logger
+	configPath  string
+	peer        string
+	listen      string
+	streams     int
+	peerType    string
+	watchdog    time.Duration
+	udp         bool
+	vkLink      string
+	vkChromeURL string
+	vkChromeUA  string
+	stubUser    string
+	stubPass    string
+	stubServer  string
+	logger      wgturn.Logger
 }
 
 // pickCaptchaSolver returns a CDP-driven solver if the CLI was given a

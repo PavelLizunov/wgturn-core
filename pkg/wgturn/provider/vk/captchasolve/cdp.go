@@ -21,6 +21,9 @@ import (
 	vkprov "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
 )
 
+// Compile-time interface satisfaction check.
+var _ vkprov.CaptchaSolver = (*CDPSolver)(nil)
+
 // CDPSolver drives a Chrome instance over the DevTools Protocol to
 // render the VK not-a-robot redirect page, dispatch a realistic mouse
 // click on the "I'm not a robot" checkbox, and harvest the
@@ -101,9 +104,15 @@ func (s *CDPSolver) Solve(ctx context.Context, ch vkprov.CaptchaChallenge) (vkpr
 	defer closeTab(httpc, chromeURL, tab.ID)
 
 	log.Debugf("[cdp-solver] opened tab id=%s ws=%s", tab.ID, tab.WebSocketDebuggerURL)
-	conn, _, err := websocket.Dial(ctx, tab.WebSocketDebuggerURL, &websocket.DialOptions{HTTPClient: httpc})
+	conn, dialResp, err := websocket.Dial(ctx, tab.WebSocketDebuggerURL, &websocket.DialOptions{HTTPClient: httpc})
 	if err != nil {
 		return vkprov.Solution{}, fmt.Errorf("cdp ws dial: %w", err)
+	}
+	// websocket.Dial returns the upgrade-response with a body whose
+	// underlying conn is now hijacked for the websocket. Closing it
+	// is a no-op functionally but linters insist (bodyclose).
+	if dialResp != nil && dialResp.Body != nil {
+		_ = dialResp.Body.Close()
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 	conn.SetReadLimit(8 * 1024 * 1024)
@@ -205,10 +214,9 @@ type cdpSession struct {
 
 	nextID atomic.Int64
 
-	mu       sync.Mutex
-	pending  map[int64]chan json.RawMessage
-	tokenCh  chan string // signalled with the success_token
-	tokenErr atomic.Pointer[error]
+	mu      sync.Mutex
+	pending map[int64]chan json.RawMessage
+	tokenCh chan string // signalled with the success_token
 }
 
 func newCDPSession(ws *websocket.Conn, log wgturn.Logger) *cdpSession {

@@ -145,10 +145,10 @@ func newFakeCDP(t *testing.T, cfg fakeCDPConfig) *fakeCDP {
 	return f
 }
 
-func (f *fakeCDP) URL() string         { return f.srv.URL }
-func (f *fakeCDP) close()               { f.srv.Close() }
-func (f *fakeCDP) clickCount() int64   { return f.clicks.Load() }
-func (f *fakeCDP) tabsClosed() int64   { return f.closed.Load() }
+func (f *fakeCDP) URL() string       { return f.srv.URL }
+func (f *fakeCDP) close()            { f.srv.Close() }
+func (f *fakeCDP) clickCount() int64 { return f.clicks.Load() }
+func (f *fakeCDP) tabsClosed() int64 { return f.closed.Load() }
 
 func (f *fakeCDP) handleNewTab(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
@@ -249,9 +249,9 @@ func (f *fakeCDP) respond(ctx context.Context, conn *websocket.Conn, id int64, m
 		// Response body for our synthetic captchaNotRobot.check.
 		body := map[string]any{
 			"response": map[string]any{
-				"status":             "OK",
-				"success_token":      f.cfg.token,
-				"redirect":           "",
+				"status":            "OK",
+				"success_token":     f.cfg.token,
+				"redirect":          "",
 				"show_captcha_type": "",
 			},
 		}

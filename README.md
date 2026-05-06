@@ -211,8 +211,10 @@ To pass VK's bot heuristics the provider:
 ### Captcha handling
 
 VK currently gates step 3 (`calls.getAnonymousToken`) behind a captcha
-for every fresh anonymous request. The provider supports it via
-`vk.WithCaptchaSolver(...)`:
+for every fresh anonymous request, and only serves the slider/checkbox
+"not-a-robot" mode — the legacy text image is permanently stuck on
+*"Картинка не поддерживается / Установите новую версию приложения."*
+The provider plugs in a solver via `vk.WithCaptchaSolver(...)`:
 
 ```go
 type CaptchaSolver interface {
@@ -220,19 +222,67 @@ type CaptchaSolver interface {
 }
 ```
 
-Inputs (`CaptchaChallenge`): `SID`, `ImgURL` (text-captcha image),
-`RedirectURI` (slider-captcha page), `Attempt`. Outputs (`Solution`):
-either `Key` (typed text from `ImgURL`) or `SuccessToken` (from the
-slider page). The library does **not** ship a solver — embedders
-choose how to surface the challenge (terminal prompt, mobile UI,
-2captcha API, 2captcha-style services, etc.).
+Inputs (`CaptchaChallenge`): `SID`, `ImgURL`, `RedirectURI` (slider /
+not-a-robot page), `Attempt`, `TS`. Outputs (`Solution`): either `Key`
+(typed text — only useful if VK ever returns to text mode) or
+`SuccessToken` (the JWT-shaped string returned by VK's
+`captchaNotRobot.check` API after a real browser solves the page).
 
-**Important caveat**: VK currently rotates between text and slider
-captcha modes. Slider mode requires a JS/DOM solver (out of scope for
-the core; see `kiper292/wireguard-turn-android` `slider_captcha.go`
-for ~600 LOC of reference). When VK is in text-captcha mode (which
-happens periodically), the bundled stdio solver in `cmd/wgturn-cli`
-works end-to-end.
+#### CDP-driven solver — `pkg/wgturn/provider/vk/captchasolve`
+
+Ships a ready-made `CDPSolver` that drives a headless Chrome over the
+DevTools Protocol:
+
+1. Opens a fresh tab via `PUT /json/new`.
+2. Navigates to the `RedirectURI` from the captcha challenge.
+3. Polls the DOM for the visible "I'm not a robot" hit area.
+4. Dispatches a realistic mouse hover + click via
+   `Input.dispatchMouseEvent` (with timing that survives VK's anti-bot
+   heuristics).
+5. Watches the network feed for `captchaNotRobot.check` responses and
+   parses out `success_token`.
+6. Closes the tab.
+
+```go
+import (
+    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
+)
+
+solver := &captchasolve.CDPSolver{
+    ChromeURL: "http://localhost:9222",   // chromium --remote-debugging-port=9222
+    UserAgent: "Mozilla/5.0 ... Chrome/146.0.0.0 Safari/537.36",
+    Logger:    myLogger,
+}
+provider := vk.New(vk.WithCaptchaSolver(solver))
+```
+
+Why a real Chrome and not a hand-rolled HTTP client? The id.vk.ru page
+runs a JS proof-of-work, sends a browser fingerprint (`webdriver`,
+`hardwareConcurrency`, `deviceMemory`, languages, …) via
+`captchaNotRobot.componentDone`, and AES-encrypts the answer with keys
+baked into a 800 KB bundle. Re-implementing all of that out of browser
+would require shipping a JS runtime AND keeping it in sync with VK's
+deploys. Letting Chrome run the page is leaner.
+
+The CDP solver is opt-in: the websocket dependency
+(`github.com/coder/websocket`) only enters your binary if you import
+`captchasolve`. Embedders that want a 2captcha integration or an
+in-app webview hook can implement `vk.CaptchaSolver` directly without
+ever pulling in this package.
+
+The CLI exposes the solver via `-vk-chrome-url`:
+
+```sh
+wgturn-cli -peer vps.example.com:56000 \
+           -vk-link https://vk.com/call/join/abcdef \
+           -vk-chrome-url http://localhost:9222 \
+           -vk-chrome-ua "Mozilla/5.0 ... Chrome/146.0.0.0 Safari/537.36" \
+           -streams 4 -udp -v
+```
+
+Without `-vk-chrome-url` the CLI uses the stdin solver, which can no
+longer pass slider mode (the only mode VK serves right now).
 
 ### Usage
 
@@ -256,7 +306,7 @@ cfg := wgturn.Config{
 }
 ```
 
-CLI:
+CLI (manual / stdin solver, only useful in legacy text-mode):
 
 ```sh
 wgturn-cli -peer vps.example.com:56000 \
@@ -264,12 +314,14 @@ wgturn-cli -peer vps.example.com:56000 \
            -streams 4
 ```
 
-**Captcha handling.** When VK challenges a request the provider returns
-`wgturn.ErrCaptchaRequired`. The library does not solve captchas —
-embedders are expected to surface this to the user (UI prompt, retry
-later, manual override, etc.). A solver may land later as
-`pkg/wgturn/provider/vk/captcha`, kept opt-in to avoid pulling the
-upstream's `bogdanfinn/tls-client` + uTLS dep tree into core.
+CLI (CDP solver, the slider-mode-capable path — see above):
+
+```sh
+wgturn-cli -peer vps.example.com:56000 \
+           -vk-link https://vk.com/call/join/abcdef \
+           -vk-chrome-url http://localhost:9222 \
+           -streams 4 -udp -v
+```
 
 ## Embedded WireGuard kernel (`pkg/wgkernel`)
 
@@ -353,4 +405,5 @@ documentation and observable wire format.
 - [cacggghp/vk-turn-proxy](https://github.com/cacggghp/vk-turn-proxy) — original VK adaptation
 - [KillTheCensorship/Turnel](https://github.com/KillTheCensorship/Turnel) — original Yandex Telemost variant (archived 2026-01)
 
-Last verified: 2026-05-04T18:28:41+00:00
+Last verified: 2026-05-06T11:14:27+00:00 (end-to-end via VK TURN +
+captchasolve.CDPSolver, exit IP confirmed at 93.95.226.167)
