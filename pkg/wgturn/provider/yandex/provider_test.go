@@ -20,20 +20,24 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/yandex"
 )
 
-// TestProvider_HappyPath_InlineCreds — the simplest deployment: step 1
-// already returns ice_servers with TURN creds at the response root.
-// No WebSocket round-trip needed.
+// TestProvider_HappyPath_InlineCreds — older Telemost deployments
+// shipped TURN ice_servers in the bootstrap response; we still
+// honour that path as a fast escape hatch (no WS round-trip needed).
 func TestProvider_HappyPath_InlineCreds(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Accept any path under /telemost_front/v2/telemost/conferences/.
 		if !strings.Contains(r.URL.Path, "/telemost/conferences/") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		writeJSON(w, map[string]any{
-			"room_id":          "room-1",
-			"peer_id":          "peer-1",
-			"media_server_url": "ws://unused.example.invalid/",
+			"room_id":     "room-1",
+			"peer_id":     "peer-1",
+			"credentials": "boot-token",
+			"client_configuration": map[string]any{
+				"media_server_url": "ws://unused.example.invalid/",
+				"service_name":     "telemost",
+			},
+			// ice_servers at root with usable TURN — short-circuits step 2.
 			"ice_servers": []any{
 				map[string]any{
 					"urls":       "turn:5.255.211.241:3478?transport=udp",
@@ -61,12 +65,15 @@ func TestProvider_HappyPath_InlineCreds(t *testing.T) {
 	}
 }
 
-// TestProvider_HappyPath_WSCreds — newer deployment: step 1 only carries
-// media_server_url + bootstrap, the actual TURN creds come over a
-// WebSocket reply frame. Verifies the WS path works end-to-end against
-// a fake Telemost media server.
+// TestProvider_HappyPath_WSCreds — current GOLOOM deployment: step 1
+// only carries media_server_url + bootstrap, the actual TURN creds
+// come over a WebSocket reply frame nested inside
+// serverHello.rtcConfiguration.iceServers. Also verifies the ack-loop:
+// the server sends a non-ack frame mid-stream and the client must
+// echo back {uid, ack} or the server gives up.
 func TestProvider_HappyPath_WSCreds(t *testing.T) {
 	t.Parallel()
+	gotAck := make(chan string, 4)
 	wsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 		if err != nil {
@@ -76,40 +83,79 @@ func TestProvider_HappyPath_WSCreds(t *testing.T) {
 		defer conn.Close(websocket.StatusNormalClosure, "")
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		// Read hello, ignore content.
-		if _, _, err := conn.Read(ctx); err != nil {
+		// Read hello, capture uid for ack reply.
+		_, helloRaw, err := conn.Read(ctx)
+		if err != nil {
 			t.Errorf("ws read hello: %v", err)
 			return
 		}
-		// Reply with a server_hello carrying ice_servers.
+		var hello struct {
+			UID string `json:"uid"`
+		}
+		_ = json.Unmarshal(helloRaw, &hello)
+
+		// Ack the hello.
+		_ = conn.Write(ctx, websocket.MessageText, mustMarshal(map[string]any{
+			"uid": hello.UID,
+			"ack": map[string]any{"status": map[string]any{"code": "OK", "description": ""}},
+		}))
+
+		// Send a non-ack frame the client must ack BEFORE serverHello.
+		// This proves the ack-loop is wired up.
+		preUID := "11111111-2222-3333-4444-555555555555"
+		_ = conn.Write(ctx, websocket.MessageText, mustMarshal(map[string]any{
+			"uid":               preUID,
+			"updateDescription": map[string]any{"description": []any{}},
+		}))
+
+		// Read the client's ack for that frame.
+		_, ackRaw, err := conn.Read(ctx)
+		if err == nil {
+			var ackedUID struct {
+				UID string `json:"uid"`
+				Ack any    `json:"ack"`
+			}
+			_ = json.Unmarshal(ackRaw, &ackedUID)
+			if ackedUID.Ack != nil {
+				gotAck <- ackedUID.UID
+			}
+		}
+
+		// Now send serverHello with the real ICE servers.
 		reply := map[string]any{
-			"server_hello": map[string]any{
-				"rtc_configuration": map[string]any{
-					"ice_servers": []any{
+			"uid": "99999999-aaaa-bbbb-cccc-dddddddddddd",
+			"serverHello": map[string]any{
+				"rtcConfiguration": map[string]any{
+					"iceServers": []any{
 						map[string]any{
-							"urls":       []any{"stun:5.255.211.241:3478", "turn:5.255.211.241:3478?transport=udp"},
-							"username":   "user-WS",
-							"credential": "pass-WS",
+							"urls":       []any{"stun:5.255.211.241:3478"},
+							"username":   "",
+							"credential": "",
+						},
+						map[string]any{
+							"urls":       []any{"turn:turn.tel.yandex.net:443"},
+							"username":   "1778182412:telemost:abcd:room-2",
+							"credential": "B64+SECRET=",
 						},
 					},
 				},
 			},
 		}
-		body, _ := json.Marshal(reply)
-		_ = conn.Write(ctx, websocket.MessageText, body)
-		// Linger briefly so the client reads the frame before close.
-		time.Sleep(50 * time.Millisecond)
+		_ = conn.Write(ctx, websocket.MessageText, mustMarshal(reply))
+		time.Sleep(80 * time.Millisecond)
 	}))
 	defer wsSrv.Close()
-	wsURL := strings.Replace(wsSrv.URL, "http://", "ws://", 1) + "/conf"
+	wsURL := strings.Replace(wsSrv.URL, "http://", "ws://", 1) + "/join"
 
 	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
-			"room_id":          "room-2",
-			"peer_id":          "peer-2",
-			"media_server_url": wsURL,
-			// Note: no ice_servers — forces WS path.
-			"credentials": map[string]any{"token": "boot-token"},
+			"room_id":     "room-2",
+			"peer_id":     "peer-2",
+			"credentials": "boot-token",
+			"client_configuration": map[string]any{
+				"media_server_url": wsURL,
+				"service_name":     "telemost",
+			},
 		})
 	}))
 	defer httpSrv.Close()
@@ -119,15 +165,32 @@ func TestProvider_HappyPath_WSCreds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if got.Username != "user-WS" {
+	if got.Username != "1778182412:telemost:abcd:room-2" {
 		t.Errorf("Username=%q", got.Username)
 	}
-	if got.Password != "pass-WS" {
+	if got.Password != "B64+SECRET=" {
 		t.Errorf("Password=%q", got.Password)
 	}
-	if got.ServerAddr != "5.255.211.241:3478" {
+	if got.ServerAddr != "turn.tel.yandex.net:443" {
 		t.Errorf("ServerAddr=%q", got.ServerAddr)
 	}
+	select {
+	case uid := <-gotAck:
+		if uid != "11111111-2222-3333-4444-555555555555" {
+			t.Errorf("client ack'd wrong uid: %s", uid)
+		}
+	default:
+		t.Errorf("client never ack'd the server's mid-stream frame")
+	}
+}
+
+// mustMarshal is a test helper.
+func mustMarshal(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
 
 // TestProvider_BareID — a hint that's just the conference ID (no

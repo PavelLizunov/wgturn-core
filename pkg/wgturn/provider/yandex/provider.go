@@ -46,6 +46,11 @@ func New(opts ...Option) *Provider {
 //
 // hint must be a Telemost invite link of the form
 // "https://telemost.yandex.ru/j/<id>" (or the bare id, or "telemost:<id>").
+//
+// NOTE: As of 2026-05 Yandex Telemost's TURN cluster is a walled
+// garden — see the package doc-comment. Credentials come back fine,
+// but the relay refuses to forward to non-Yandex peer IPs. A WARN log
+// fires once on every successful fetch to remind the operator.
 func (p *Provider) Fetch(ctx context.Context, hint string, streamID int) (wgturn.Credentials, error) {
 	callID, err := extractCallID(hint)
 	if err != nil {
@@ -59,6 +64,8 @@ func (p *Provider) Fetch(ctx context.Context, hint string, streamID int) (wgturn
 		return wgturn.Credentials{}, err
 	}
 	p.logger.Infof("[yandex] stream=%d fetched: turn=%s user=%s", streamID, addr, user)
+	p.logger.Warnf("[yandex] stream=%d note: Yandex Telemost TURN is peer-IP-restricted; "+
+		"DTLS handshake to a non-Yandex server WILL fail. See pkg doc.", streamID)
 
 	return wgturn.Credentials{
 		Username:   user,

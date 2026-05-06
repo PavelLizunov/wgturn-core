@@ -4,19 +4,34 @@
 // Package yandex is a wgturn.CredentialsProvider that obtains TURN
 // credentials from Yandex Telemost's anonymous-conference API.
 //
-// Why a second provider after VK?
+// IMPORTANT — runtime-verified limitation (2026-05):
 //
-// VK Calls' TURN servers (AS47764 / AS47542, Mail.ru group) shape
-// per-call session bandwidth around voice-call quality. Empirical
-// soak tests on a Russian client peak at ≈135 KB/s aggregate even
-// with -streams 16 spread across 4 distinct VK call sessions —
-// suggesting either per-source-IP shaping or shared backend capacity.
+// Yandex Telemost's TURN service (turn.tel.yandex.net:443, the host
+// returned by the GOLOOM media-server WebSocket) enforces a peer-IP
+// allowlist that only permits relaying to Yandex SFU clusters
+// (5.255.x.x / 37.9.x.x / 77.88.x.x in their internal RTC AS). Tested
+// with a wgturn-server on a foreign VPS (93.95.226.167:56000): the
+// TURN allocation succeeds, CreatePermission appears to succeed, but
+// not a single relayed UDP packet reaches the peer — confirmed via
+// tcpdump on the receiver. This makes Telemost UNUSABLE as a wgturn
+// transport even though the credentials are real and anonymous.
 //
-// Yandex Telemost runs on AS13238 (Yandex's own ASN) with an
-// independent TURN pool (5.255.211.241..246 and friends). Mixing VK +
-// Yandex Telemost links via wgturn.Config.Hints lets a single Tunnel
-// hit two unrelated sets of TURN servers and (hopefully) ~double the
-// aggregate bandwidth ceiling.
+// In contrast, VK Calls TURN (the existing provider/vk) imposes no
+// peer-IP filter and happily relays to any destination, which is why
+// VK works as a wgturn transport and Telemost does not.
+//
+// This package is still kept in the tree because:
+//
+//  1. The credential extraction is correct and could be useful for
+//     future research / logging / non-relay use cases.
+//  2. The CLI's routedProvider must dispatch Telemost-shaped hints
+//     somewhere — better an explicit "peer-IP denied" failure than a
+//     misleading parse error.
+//  3. If Yandex relaxes their TURN filter (e.g., for a future
+//     diagnostics endpoint) the provider will start working without
+//     code changes.
+//
+// API surface (anonymous, no cookie / no account):
 //
 // API surface (anonymous, no cookie / no account):
 //

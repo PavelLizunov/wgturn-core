@@ -93,18 +93,19 @@ func fetchTurn(ctx context.Context, hc *http.Client, base, callID string, log wg
 		return "", "", "", fmt.Errorf("step1 decode: %w (body=%s)", err, bytesPreview(body))
 	}
 
-	// Path A: response already carries ice_servers / turn_servers
-	// directly (some Telemost deployments do this for thin clients).
+	// Path A: response already carries TURN ice_servers directly
+	// (older Telemost deployments did this; GOLOOM does not).
 	if u, p, addr, ok := turnFromConference(&conf); ok {
 		log.Debugf("[yandex] step1 yielded TURN inline (no WS needed)")
 		return u, p, addr, nil
 	}
 
-	// Path B: WebSocket negotiation.
-	if conf.MediaServerURL == "" {
-		return "", "", "", errors.New("yandex: step1 missing media_server_url and no inline TURN creds")
+	// Path B: WebSocket negotiation against the GOLOOM media server.
+	wsURL := conf.ClientConfiguration.MediaServerURL
+	if wsURL == "" {
+		return "", "", "", errors.New("yandex: step1 missing client_configuration.media_server_url and no inline TURN creds")
 	}
-	log.Debugf("[yandex] step1 ok, opening WS to %s", conf.MediaServerURL)
+	log.Debugf("[yandex] step1 ok, opening WS to %s", wsURL)
 
 	user, pass, addr, err := wsFetchTurn(ctx, hc, &conf, log)
 	if err != nil {
@@ -113,21 +114,35 @@ func fetchTurn(ctx context.Context, hc *http.Client, base, callID string, log wg
 	return user, pass, addr, nil
 }
 
-// conferenceResponse mirrors the JSON shape returned by step 1. We
-// keep it lenient — extra fields are ignored, and we look in two
-// well-known locations for the TURN creds (root and `credentials`).
+// conferenceResponse mirrors the JSON shape returned by step 1.
+//
+// As of the GOLOOM rollout (2026-Q1), the bootstrap response carries:
+//   - room_id, peer_id, session_id, peer_session_id (UUIDs)
+//   - credentials (a short hex bootstrap token, NOT TURN creds)
+//   - client_configuration.media_server_url ("wss://goloom.../join")
+//   - client_configuration.ice_servers (STUN-only, not enough for relay)
+//
+// We keep the struct lenient — extra fields ignored. Real TURN creds
+// come from step 2 (WebSocket).
 type conferenceResponse struct {
-	RoomID         string            `json:"room_id"`
-	PeerID         string            `json:"peer_id"`
-	MediaServerURL string            `json:"media_server_url"`
-	Credentials    *credentialsBlock `json:"credentials"`
+	RoomID         string `json:"room_id"`
+	PeerID         string `json:"peer_id"`
+	SessionID      string `json:"session_id"`
+	PeerSessionID  string `json:"peer_session_id"`
+	URI            string `json:"uri"`
+	MediaPlatform  string `json:"media_platform"`
+	Credentials    string `json:"credentials"` // bootstrap token, NOT the TURN password
+	WSURI          string `json:"ws_uri"`
+	ConnectionType string `json:"connection_type"`
 
-	// Some deployments return ice_servers inline at the root.
-	IceServers []iceServer `json:"ice_servers,omitempty"`
-}
+	ClientConfiguration struct {
+		MediaServerURL string      `json:"media_server_url"`
+		ServiceName    string      `json:"service_name"`
+		IceServers     []iceServer `json:"ice_servers,omitempty"`
+	} `json:"client_configuration"`
 
-type credentialsBlock struct {
-	Token      string      `json:"token"`
+	// Older Telemost deployments returned ice_servers inline at the
+	// root; we still check there as a fallback.
 	IceServers []iceServer `json:"ice_servers,omitempty"`
 }
 
@@ -163,12 +178,11 @@ func (j *jsonStringOrSlice) UnmarshalJSON(b []byte) error {
 }
 
 // turnFromConference returns the first turn:/turns: ICE server in the
-// step-1 response (either at the root or under credentials.ice_servers).
+// step-1 response. Two well-known locations are checked: the root
+// .ice_servers (older deployments) and .client_configuration.ice_servers
+// (current GOLOOM bootstrap, which actually only ships STUN here).
 func turnFromConference(c *conferenceResponse) (string, string, string, bool) {
-	pools := [][]iceServer{c.IceServers}
-	if c.Credentials != nil {
-		pools = append(pools, c.Credentials.IceServers)
-	}
+	pools := [][]iceServer{c.IceServers, c.ClientConfiguration.IceServers}
 	for _, pool := range pools {
 		for _, srv := range pool {
 			for _, raw := range srv.Urls {

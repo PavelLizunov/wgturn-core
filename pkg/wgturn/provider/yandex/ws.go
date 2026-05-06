@@ -18,19 +18,28 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgturn"
 )
 
-// wsFetchTurn opens a WebSocket to the conference's media_server_url,
-// sends a hello frame, and reads back the ServerHello whose
-// rtc_configuration.ice_servers carry the TURN credentials.
+// wsFetchTurn drives the GOLOOM media-server handshake on
+// wss://goloom.strm.yandex.net/join (or whatever step 1 returned in
+// client_configuration.media_server_url).
 //
-// The exact WS protocol is documented poorly by Yandex; what's
-// implemented here mirrors the shape used by the public Telemost web
-// client (telemost.yandex.ru SPA, observed 2026-04). The hello
-// payload is intentionally minimal — Telemost is permissive about
-// missing optional fields. The reply parser scans every frame for
-// fields named ice_servers / iceServers anywhere in the JSON tree, so
-// minor schema drift between deployments doesn't break us.
+// Wire protocol — observed against telemost.yandex.ru's web SPA,
+// 2026-Q2:
+//
+//   - Frames are JSON objects, each carrying a top-level "uid" plus a
+//     payload field that names the message kind ("hello", "ack",
+//     "serverHello", "subscriberSdpOffer", "webrtcIceCandidate", …).
+//
+//   - When the server sends a non-ack frame, the client must echo
+//     back {"uid": <theirs>, "ack": {"status": {"code":"OK","description":""}}}.
+//
+//   - The ICE servers we want live in
+//     serverHello.rtcConfiguration.iceServers — but the walker is
+//     schema-tolerant: it scans the entire JSON tree for any object
+//     with a urls/username/credential trio (where urls includes a
+//     turn: or turns: entry), so minor field-name drift between
+//     Telemost deployments doesn't break us.
 func wsFetchTurn(ctx context.Context, hc *http.Client, conf *conferenceResponse, log wgturn.Logger) (string, string, string, error) {
-	wsURL := conf.MediaServerURL
+	wsURL := conf.ClientConfiguration.MediaServerURL
 	if wsURL == "" {
 		return "", "", "", errors.New("media_server_url is empty")
 	}
@@ -52,36 +61,56 @@ func wsFetchTurn(ctx context.Context, hc *http.Client, conf *conferenceResponse,
 		_ = resp.Body.Close()
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
-	conn.SetReadLimit(2 * 1024 * 1024)
+	conn.SetReadLimit(4 * 1024 * 1024)
 
+	// Build the hello payload. The shape mirrors what telemost's web
+	// SPA dispatches on the WebSocket open event (extracted from
+	// the live JS bundle, May 2026). capabilitiesOffer={} works in
+	// practice — the server fills sensible defaults into
+	// capabilitiesAnswer and proceeds. participantId / roomId /
+	// credentials all come straight from step 1.
+	helloUID := uuid.NewString()
 	hello := map[string]any{
-		"uid": uuid.New().String(),
+		"uid": helloUID,
 		"hello": map[string]any{
-			"room_id":      conf.RoomID,
-			"peer_id":      conf.PeerID,
-			"capabilities": []string{"webrtc", "ice", "dtls"},
-			"sdk": map[string]any{
-				"name":     "telemost-web",
-				"version":  "1.0.0",
-				"platform": "web",
+			"participantMeta": map[string]any{
+				"name":        "Guest",
+				"role":        "SPEAKER",
+				"description": "",
+				"sendAudio":   false,
+				"sendVideo":   false,
 			},
-			"token": "",
+			"participantAttributes": map[string]any{
+				"name":        "Guest",
+				"role":        "SPEAKER",
+				"description": "",
+			},
+			"sendAudio":           false,
+			"sendVideo":           false,
+			"sendSharing":         false,
+			"participantId":       conf.PeerID,
+			"roomId":              conf.RoomID,
+			"serviceName":         conf.ClientConfiguration.ServiceName,
+			"credentials":         conf.Credentials,
+			"capabilitiesOffer":   map[string]any{},
+			"sdkInfo":             map[string]any{"implementation": "browser", "version": "1.0.0"},
+			"sdkInitializationId": uuid.NewString(),
 		},
 	}
-	if conf.Credentials != nil {
-		hello["hello"].(map[string]any)["token"] = conf.Credentials.Token
+	if hello["hello"].(map[string]any)["serviceName"] == "" {
+		hello["hello"].(map[string]any)["serviceName"] = "telemost"
 	}
-
 	body, err := json.Marshal(hello)
 	if err != nil {
 		return "", "", "", fmt.Errorf("ws marshal hello: %w", err)
 	}
-	log.Debugf("[yandex] ws hello (%d bytes)", len(body))
+	log.Debugf("[yandex] ws hello (%d bytes, peer=%s room=%s)", len(body), conf.PeerID, conf.RoomID)
 	if err := conn.Write(ctx, websocket.MessageText, body); err != nil {
 		return "", "", "", fmt.Errorf("ws write hello: %w", err)
 	}
 
-	// Read frames for up to 15 s, scanning each for ice_servers.
+	// Read frames for up to 15 s. Ack any non-ack frame the server
+	// sends, scan each for ICE servers carrying a turn:/turns: URL.
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		readCtx, rcancel := context.WithDeadline(ctx, deadline)
@@ -90,19 +119,35 @@ func wsFetchTurn(ctx context.Context, hc *http.Client, conf *conferenceResponse,
 		if err != nil {
 			return "", "", "", fmt.Errorf("ws read: %w", err)
 		}
+		var probe struct {
+			UID string          `json:"uid"`
+			Ack json.RawMessage `json:"ack,omitempty"`
+		}
+		_ = json.Unmarshal(raw, &probe)
+		// Echo an ack for any frame the server sent that isn't itself
+		// just an ack. Skip the server's ack of OUR hello (we sent
+		// helloUID, server replies with the same uid).
+		if probe.UID != "" && len(probe.Ack) == 0 && probe.UID != helloUID {
+			ackBody := mustMarshal(map[string]any{
+				"uid": probe.UID,
+				"ack": map[string]any{"status": map[string]any{"code": "OK", "description": ""}},
+			})
+			if err := conn.Write(ctx, websocket.MessageText, ackBody); err != nil {
+				log.Debugf("[yandex] ws ack write: %v (continuing)", err)
+			}
+		}
 		if u, p, addr, ok := scanFrameForTurn(raw); ok {
 			return u, p, addr, nil
 		}
-		// keep reading — the first frame is usually a non-hello ack.
 	}
-	return "", "", "", errors.New("ws: no ice_servers in any frame within deadline")
+	return "", "", "", errors.New("ws: no turn ice_servers within deadline")
 }
 
 // scanFrameForTurn walks an arbitrary JSON object looking for ICE
-// server entries. It tolerates schema drift: as long as somewhere in
-// the tree there is an array of objects with a "urls" + "username" +
-// "credential" trio (where at least one urls entry is turn:/turns:),
-// it returns the first match.
+// server entries. As long as somewhere in the tree there is an array
+// of objects with a "urls" + "username" + "credential" trio (with
+// at least one urls entry being turn:/turns:), it returns the first
+// match.
 func scanFrameForTurn(b []byte) (string, string, string, bool) {
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
@@ -114,32 +159,27 @@ func scanFrameForTurn(b []byte) (string, string, string, bool) {
 func walkForTurn(v any) (string, string, string, bool) {
 	switch x := v.(type) {
 	case []any:
-		// Array of ice server objects?
 		for _, e := range x {
 			if u, p, addr, ok := tryICEEntry(e); ok {
 				return u, p, addr, true
 			}
 		}
-		// Recurse.
 		for _, e := range x {
 			if u, p, addr, ok := walkForTurn(e); ok {
 				return u, p, addr, true
 			}
 		}
 	case map[string]any:
-		// First, look for a known ice_servers field at this level.
-		for _, key := range []string{"ice_servers", "iceServers", "ice_server", "iceserver"} {
+		for _, key := range []string{"iceServers", "ice_servers", "iceServer", "ice_server"} {
 			if entries, ok := x[key]; ok {
 				if u, p, addr, ok := walkForTurn(entries); ok {
 					return u, p, addr, true
 				}
 			}
 		}
-		// If THIS object looks like an ICE server, take it.
 		if u, p, addr, ok := tryICEEntry(x); ok {
 			return u, p, addr, true
 		}
-		// Recurse into all children.
 		for _, child := range x {
 			if u, p, addr, ok := walkForTurn(child); ok {
 				return u, p, addr, true
@@ -192,9 +232,14 @@ func tryICEEntry(v any) (string, string, string, bool) {
 	return "", "", "", false
 }
 
-// String-search fallback when the JSON parser can't recurse into a
-// frame (e.g. compressed / binary content). Not currently wired but
-// kept for potential use when probing a real Telemost session.
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// grepTurnURL is a string-search fallback for diagnostic dumps. Not
+// wired into the production path — kept because it's useful when
+// probing future Telemost wire-format changes.
 //
 //nolint:unused // diagnostic helper
 func grepTurnURL(buf []byte) string {
