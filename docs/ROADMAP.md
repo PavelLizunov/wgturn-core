@@ -54,20 +54,18 @@ not calendar-precise. Strikethrough = no longer relevant.
   downtime. e2e roundtrip verified on is-01. (N7)
 - ✅ Cross-compiled handoff bundle (linux/macOS/windows × amd64/arm64)
 - ✅ CI green on Forgejo Actions (Go 1.25, race detector, golangci-lint)
+- ✅ Server-side re-implementation as `pkg/wgturnsrv` under Apache-2.0,
+  clean-room (no GPL upstream sources). Single binary `wgturn-cli`
+  serves both `connect` (client) and `serve` (server) roles
+  sing-box-style. Shared wire-format primitives in `internal/framing`
+  (17-byte handshake + DTLS config builder) keep client and server in
+  byte-for-byte agreement. Keystone proof: in-process `pair_test.go`
+  drives a real WG handshake through wgkernel#1 → Hub → in-process
+  pion/turn → Server → wgkernel#2 in ~150 ms, race-clean on CI. (N8
+  coding; is-01 switch is a separate operational window — see
+  `docs/HANDBOOK.md` "Switching is-01".)
 
 ## Next (priority-ordered, not yet started)
-
-### N8 — Re-implement server-side as `pkg/wgturnsrv` (≈3-5 h)
-
-Bring the server (currently `slovn/wgturn-server`, GPL-3.0 fork of
-`kiper292/vk-turn-proxy`) under our roof as a clean-room re-impl
-under Apache-2.0, exposed via `wgturn-cli serve <conf>`. End state:
-one binary, sing-box-style, both `connect` (client) and `serve`
-(server) roles in the same `wgturn-cli`.
-
-See [issue #2](http://192.168.0.207:18300/slovn/wgturn-core/issues/2)
-for the detailed scope, switch plan for is-01, and don't-regress
-list.
 
 ### N1.5 — macOS / Windows host-side network setup (≈2-3 h)
 

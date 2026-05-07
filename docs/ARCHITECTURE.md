@@ -25,9 +25,11 @@ mode, etc.
         │ relayed UDP                  relayConn
         ▼
    ┌────────────────────┐
-   │ wgturn server      │   (separate repo / separate binary)
-   │ (PeerAddr, your    │   Aggregates streams by Session-ID,
-   │  foreign VPS)      │   forwards reassembled WG to local WG daemon
+   │ wgturn server      │   `pkg/wgturnsrv` — Apache-2.0, in-tree
+   │ (PeerAddr, your    │   (or legacy `slovn/wgturn-server` GPL fork
+   │  foreign VPS)      │    pre-N8). Same wire format either way.
+   │                    │   Aggregates streams by Session-ID,
+   │                    │   forwards reassembled WG to local WG daemon.
    └────────────────────┘
 ```
 
@@ -67,6 +69,62 @@ should be stable but the implementation isn't part of the API contract.
     + 1-byte stream-id). Multi-stream-aware. Use for production.
   - `proxy_v1` — DTLS only, no session-id (legacy single-user servers).
   - `wireguard` — raw WG, no DTLS. Debugging only.
+
+### `internal/framing` — wire-format primitives shared by both sides
+
+Tiny package owning the proxy_v2 on-the-wire contract: the 17-byte
+session+stream preamble (`WriteHandshake` / `ReadHandshake`,
+constants `SessionIDSize=16`, `HandshakeSize=17`), and the DTLS
+config builder (`NewDTLSConfig(role, cert)` plus
+`GenerateCertificate`). Imported by both `internal/proxy` (client)
+and `pkg/wgturnsrv` (server) so any future tweak to the wire format
+lands in exactly one place.
+
+`role` is a typed `Role` enum (`RoleClient` / `RoleServer`) — server
+side gets `RandomCIDGenerator(8)` (CIDSize=8) for connection-IDs,
+client side gets `OnlySendCIDGenerator()` (sends a CID but doesn't
+need to receive one).
+
+### `pkg/wgturnsrv` — server-side proxy (Apache-2.0)
+
+The server-side counterpart to `pkg/wgturn`. Imported by
+`cmd/wgturn-cli serve` and any embedder running their own VPS exit
+node.
+
+Key types:
+- `Server` — runtime handle; `New(cfg) → Start(ctx) → Stats() → Stop()`.
+- `Config` — declarative struct: `ListenAddr`, `Backend`, `Logger`,
+  three timeout overrides (`HandshakeTimeout`, `StreamReadTimeout`,
+  `BackendWriteTimeout`).
+- `Backend` interface — `Open(ctx, sessionID) (net.Conn, error)`.
+  Called once per session on first stream. Returned conn is owned
+  by that session.
+- `UDPBackend{Addr}` — production path: dials a fresh per-session
+  UDP socket to a local WG daemon. Per-session sources keep
+  WireGuard's session table happy.
+- `WGKernelBackend` — bridges into an in-process `wgkernel.Kernel`
+  via a custom `conn.Bind`. Single-session today; multi-peer
+  fan-out is future work. Used by the in-process pair test (S5)
+  and by single-client all-in-one experiments.
+
+Lifecycle inside `Server`:
+1. Start binds DTLS listener, spawns accept loop.
+2. Per-conn `handleConn`: SetReadDeadline(HandshakeTimeout) →
+   `framing.ReadHandshake` → `getOrCreateSession` (lazy backend
+   Open) → `addStream` (eviction-on-duplicate-streamID) → blocking
+   `runStream` until conn closes.
+3. Per-session `runBackend` (1 goroutine): reads from backend,
+   round-robins to streams via atomic counter. StreamReadTimeout
+   per Read; expired = WG side silent = teardown.
+4. Stop snapshots active sessions and `terminate()`s each one
+   idempotently — closes backend, cancels ctx, closes streams,
+   removes from map.
+
+Apache-2.0 cleanliness: zero copied code from
+`kiper292/vk-turn-proxy` (GPL). Wire format matches by spec — the
+17-byte preamble, the cipher suite, the 5-min timeouts — but every
+byte was written from a blank buffer. See `docs/N8-SERVER-PLAN.md`
+"Mission constraints".
 
 ### `internal/creds` — credentials cache
 
@@ -126,13 +184,20 @@ own solver (2captcha, in-app webview) ignore it.
 ### `cmd/wgturn-cli` — reference CLI
 
 Thin wrapper. Not part of the API. Useful for testing and as a
-zero-config tool for tech users. Two modes:
-1. `-config <path>` — wgconf .conf file with `#@wgt:` metadata.
-2. Direct flags (`-peer`, `-vk-link`, `-streams`, etc.).
+zero-config tool for tech users. Three subcommands plus the legacy
+flag-driven mode:
 
-For the planned `connect` subcommand (see ROADMAP.md N1) it'll also
-bring up `pkg/wgkernel` automatically — eliminating the user's need
-for separate `wg-quick`.
+1. `wgturn-cli connect <wireguard.conf>` — single-command client:
+   wgturn hub + embedded `pkg/wgkernel` + (Linux) host-side
+   networking. Auto-spawns Chrome for the CDP captcha solver.
+2. `wgturn-cli serve <server.conf>` — single-command server:
+   `pkg/wgturnsrv.Server` against a `Backend` derived from
+   `#@wgt:Backend` in the .conf. The same binary as the client,
+   sing-box-style.
+3. `-config <path>` legacy mode — wgconf .conf with `#@wgt:`
+   metadata, hub only (the user brings up WG separately).
+4. Direct flags (`-peer`, `-vk-link`, `-streams`, etc.) — same as
+   legacy, no .conf file required.
 
 ## Why these specific abstractions
 

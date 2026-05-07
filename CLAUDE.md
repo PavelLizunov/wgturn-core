@@ -50,13 +50,15 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 | `pkg/wgturn/provider/vk/captchasolve` (CDPSolver) | ✅ works against real VK, ~1 sec per solve |
 | `pkg/wgturn/provider/vk/captchasolve/embedded` | ✅ optional `-tags embedded`, bundles chrome-headless-shell 148; +~100 MB per binary; linux/arm64 unsupported |
 | `pkg/wgturn/provider/yandex` (Telemost) | ⚠️ creds extract correctly, but TURN is walled-garden — UNUSABLE as VPN backend |
-| `pkg/wgconf` (config parser) | ✅ parses `#@wgt:` metadata + standard wg-quick `[Interface]` / `[Peer]` sections |
+| `pkg/wgconf` (config parser) | ✅ parses `#@wgt:` client metadata + `EnableServer` / `Listen` / `Backend` server metadata + standard wg-quick `[Interface]` / `[Peer]` sections |
 | `pkg/wgkernel` (embedded WG userspace) | ✅ stable; wired into the CLI's `connect` subcommand |
+| `internal/framing` (proxy_v2 wire-format primitives) | ✅ shared by client + server; 17-byte handshake encoder/decoder + DTLS config builder |
+| `pkg/wgturnsrv` (server-side proxy, Apache-2.0) | ✅ clean-room re-impl, demuxer + Backend interface (`UDPBackend`, `WGKernelBackend`); pair_test green; replaces `slovn/wgturn-server` (GPL) once is-01 is switched |
 | `cmd/wgturn-cli` legacy mode | ✅ working, default `-streams 24` (kept for handoff backward compat) |
 | `cmd/wgturn-cli connect` subcommand | ✅ Linux auto host-setup; macOS/Windows print manual `ip`/`ifconfig` hints |
+| `cmd/wgturn-cli serve` subcommand | ✅ binds DTLS, drives Backend; `udp:host:port` ready, `wgkernel` deferred until multi-peer fan-out |
 | `scripts/{provision,list,revoke}-user.sh` | ✅ server-side admin: keypair-gen + IP-alloc + wg-syncconf, no downtime |
-| `pkg/wgturnsrv` (server-side proxy) | ⏳ NOT YET — clean-room re-impl planned, see `docs/N8-SERVER-PLAN.md` and issue #2; current server is `slovn/wgturn-server` (GPL fork) on is-01 |
-| Server (`wgturn-server` on is-01) | ✅ Up, healthcheck disabled |
+| Server (is-01) | ✅ legacy `slovn/wgturn-server` (GPL fork) running; `wgturn-cli serve` switch pending operational window — see HANDBOOK |
 | CI (Forgejo Actions) | ✅ green; transient `data.forgejo.org` checkout timeouts ~10% — retrigger via empty commit |
 
 ## Hard rules

@@ -234,25 +234,76 @@ Triage:
    stream's runOnce retries with backoff, see
    `internal/proxy/stream.go`).
 
-### Replacing the server (ROADMAP N8 — planned, not done)
+### Running an `wgturn-cli serve` instance (Apache-2.0, single binary)
 
-`docs/N8-SERVER-PLAN.md` is the detailed runbook for replacing the
-GPL fork with our own `wgturn-cli serve` Apache-2.0 implementation.
-TL;DR for ops:
+`pkg/wgturnsrv` + `wgturn-cli serve` replaces the legacy GPL upstream.
+Same binary as the client, sing-box-style. Day-to-day operation:
 
-1. Build `wgturn-cli` with both `connect` and `serve` subcommands
-   from `wgturn-core` main.
-2. Drop binary on is-01 next to existing `/opt/wgturn-server/`.
-3. Run new binary on **port 56001** (not 56000) parallel to old one.
+```bash
+# Minimum config (server-side .conf):
+cat > /etc/wgturn/server.conf <<'EOF'
+#@wgt:EnableServer = true
+#@wgt:Listen       = :56000
+#@wgt:Backend      = udp:127.0.0.1:51820
+EOF
+
+# Start, foreground (or wire into systemd):
+sudo wgturn-cli serve /etc/wgturn/server.conf -v
+```
+
+The server only re-frames DTLS into UDP; it does NOT carry
+WireGuard state. `wg-quick up wg0` (or systemd `wg-quick@wg0`) brings
+up the WG daemon at `127.0.0.1:51820`, and the proxy forwards
+client→peer payload into it. Existing `scripts/provision-user.sh` /
+`list-users.sh` / `revoke-user.sh` work unchanged because they edit
+`/etc/wireguard/wg0.conf` and call `wg syncconf`, both of which are
+oblivious to the proxy in front.
+
+CLI flags useful for ops:
+- `--listen :56001` — override `#@wgt:Listen` for parallel-port soak
+  alongside the production instance on `:56000`.
+- `--backend udp:127.0.0.1:NNNN` — override the WG endpoint without
+  editing the .conf.
+- `--stats 30s` — log `SessionsActive` / `StreamsActive` periodically
+  so it's obvious whether anyone is connected.
+- `-v` — debug-level logging.
+
+### Switching is-01 from the legacy GPL upstream to `wgturn-cli serve`
+
+Reuses the parallel-port soak pattern from `docs/N8-SERVER-PLAN.md` S9:
+
+1. Drop the new binary on is-01 next to the existing
+   `/opt/wgturn-server/` deployment:
+   ```bash
+   scp wgturn-handoff/wgturn-cli-linux-amd64 \
+       user@192.168.0.207:~/ && \
+     ssh user@192.168.0.207 "scp ~/wgturn-cli-linux-amd64 \
+       root@93.95.226.167:/usr/local/bin/wgturn-cli && \
+       ssh root@93.95.226.167 chmod +x /usr/local/bin/wgturn-cli"
+   ```
+2. Create `/etc/wgturn/server.conf` on is-01 (Listen `:56001`,
+   Backend `udp:127.0.0.1:51820`).
+3. Run new binary on `:56001` alongside the legacy container on
+   `:56000`:
+   ```bash
+   ssh root@93.95.226.167 "wgturn-cli serve /etc/wgturn/server.conf -v"
+   # or as a systemd unit
+   ```
 4. From .142 use a test client config pointing at `:56001`. Verify
-   exit IP through the new path.
-5. **Soak for 24 h** before promoting. No exceptions — Pavel's only
-   emergency tunnel goes through this server.
-6. Maintenance window: stop old, restart new on `:56000`. Existing
-   handoff configs keep working.
-7. Keep old `/opt/wgturn-server/` for a sprint as rollback.
+   end-to-end: `connect → ping 93.95.226.167 → curl ifconfig.me`
+   through the tunnel returns the correct exit IP.
+5. **Soak for 24 h** on `:56001`. No exceptions — Pavel's only
+   emergency tunnel goes through is-01.
+6. Maintenance window: stop the legacy container, point the new
+   binary at `:56000`, verify Pavel's existing handoff config keeps
+   working without edits.
+7. Keep the legacy `slovn/wgturn-server` deploy around for one
+   sprint as rollback. Revert path is "stop new, start old".
+8. After two weeks of green: archive `slovn/wgturn-server` (mark
+   read-only on Forgejo, keep GitHub mirror for history).
 
-Until N8 lands the server runbook stays the docker-based one above.
+Until is-01 is switched, the docker-based runbook above remains
+authoritative for production.
 
 ### Provisioning new VPN users (admin)
 
