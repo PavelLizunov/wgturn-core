@@ -45,8 +45,10 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 | `pkg/wgturn/provider/vk` (VK creds) | ✅ stable, utls + Chrome headers + correct success_token submit |
 | `pkg/wgturn/provider/vk/captchasolve` (CDPSolver) | ✅ works against real VK, ~1 sec per solve |
 | `pkg/wgturn/provider/yandex` (Telemost) | ⚠️ creds extract correctly, but TURN is walled-garden — UNUSABLE as VPN backend |
-| `pkg/wgkernel` (embedded WG userspace) | ✅ exists, NOT yet wired into CLI |
-| `cmd/wgturn-cli` | ✅ working, default `-streams 24` |
+| `pkg/wgconf` (config parser) | ✅ parses `#@wgt:` metadata + standard wg-quick `[Interface]` / `[Peer]` sections |
+| `pkg/wgkernel` (embedded WG userspace) | ✅ stable; wired into the CLI's `connect` subcommand |
+| `cmd/wgturn-cli` legacy mode | ✅ working, default `-streams 24` (kept for handoff backward compat) |
+| `cmd/wgturn-cli connect` subcommand | ✅ Linux auto host-setup; macOS/Windows print manual `ip`/`ifconfig` hints |
 | Server (`wgturn-server` on is-01) | ✅ Up, healthcheck disabled |
 | CI (Forgejo Actions) | ✅ green; transient `data.forgejo.org` checkout timeouts ~10% — retrigger via empty commit |
 

@@ -8,8 +8,17 @@ not calendar-precise. Strikethrough = no longer relevant.
 ### Q2 2026 — emergency channel ready
 
 - ✅ TURN proxy hub (`pkg/wgturn`) + DTLS-over-STUN-ChannelData
-- ✅ Embedded WireGuard userspace (`pkg/wgkernel`) — exists, used by tests,
-  NOT yet wired into `cmd/wgturn-cli connect`
+- ✅ Embedded WireGuard userspace (`pkg/wgkernel`) — wired into
+  `cmd/wgturn-cli connect`
+- ✅ `wgturn-cli connect <wg-quick.conf>` subcommand: one-command VPN
+  startup. Auto-spawns headless Chrome (overridable via
+  `--vk-chrome-url`), auto-configures Linux host-side networking
+  (link/addr/routes), graceful LIFO teardown on SIGINT/SIGTERM. macOS
+  and Windows print the manual `ip`/`ifconfig`/`route` commands the
+  user must run themselves until the auto-host-setup gets ported. (N1+N2)
+- ✅ `pkg/wgconf` parses standard wg-quick `[Interface]` / `[Peer]`
+  sections in addition to `#@wgt:` metadata, so a single .conf drives
+  both hub and kernel without changes from `wg-quick up` users.
 - ✅ VK Calls anonymous-token API client (`pkg/wgturn/provider/vk`):
   - utls Chrome 133 JA3 fingerprint
   - Full Chrome cross-origin headers (sec-ch-ua-*, Sec-Fetch-*, Origin, Referer)
@@ -39,23 +48,19 @@ not calendar-precise. Strikethrough = no longer relevant.
 
 ## Next (priority-ordered, not yet started)
 
-### N1 — `wgturn-cli connect` subcommand (≈2 h)
+### N1.5 — macOS / Windows host-side network setup (≈2-3 h)
 
-Single command: `sudo ./wgturn-cli connect /etc/wgturn/myvpn.conf` →
-brings up everything in one process. Wires `pkg/wgkernel` (already
-exists) into the CLI, so users no longer need separate `wg-quick up`.
+`wgturn-cli connect` v0 only auto-configures the host (link, addrs,
+routes) on Linux via `/sbin/ip`. macOS needs `ifconfig` + `route`,
+Windows needs `netsh interface` and the wintun driver semantics.
+Until then, non-Linux users see a printout of the manual commands
+they need to run after `connect` brings the tunnel up.
 
-Removes 3 of the 5 manual steps for end users. Increases binary size
-by ~1 MB. Linux/macOS: requires `sudo` for TUN. Windows: requires
-`wintun.dll` next to the binary.
-
-### N2 — Auto-launch Chrome from CLI (≈30 min)
-
-`-vk-chrome-auto` flag: search `$PATH` for `google-chrome` /
-`chromium-browser` / `google-chrome-stable` etc.; spawn it with the
-right flags into a tmp `--user-data-dir`; reap on signal.
-Removes 1 more manual step. Doesn't help users without Chrome installed
-at all — see N3 / N4.
+Layered approach: small per-OS shell-out files (`hostsetup_darwin.go`,
+`hostsetup_windows.go`) implementing the same `(func(), error)` shape
+the existing Linux path uses. Idempotency policy stays the same: refuse
+to reuse half-state from a crashed run; user cleans manually with
+the matching del commands.
 
 ### N3 — Pure-Go slider captcha solver (≈6-8 h)
 
