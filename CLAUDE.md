@@ -44,6 +44,7 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 | `pkg/wgturn` (TURN proxy core) | ✅ stable |
 | `pkg/wgturn/provider/vk` (VK creds) | ✅ stable, utls + Chrome headers + correct success_token submit |
 | `pkg/wgturn/provider/vk/captchasolve` (CDPSolver) | ✅ works against real VK, ~1 sec per solve |
+| `pkg/wgturn/provider/vk/captchasolve/embedded` | ✅ optional `-tags embedded`, bundles chrome-headless-shell 148; +~100 MB per binary; linux/arm64 unsupported |
 | `pkg/wgturn/provider/yandex` (Telemost) | ⚠️ creds extract correctly, but TURN is walled-garden — UNUSABLE as VPN backend |
 | `pkg/wgconf` (config parser) | ✅ parses `#@wgt:` metadata + standard wg-quick `[Interface]` / `[Peer]` sections |
 | `pkg/wgkernel` (embedded WG userspace) | ✅ stable; wired into the CLI's `connect` subcommand |

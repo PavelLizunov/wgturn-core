@@ -41,6 +41,12 @@ not calendar-precise. Strikethrough = no longer relevant.
   - **TURN walled-garden — UNUSABLE as VPN backend** (peer-IP filter,
     confirmed via tcpdump)
   - Code kept in tree as research artifact + in case Yandex relaxes filter
+- ✅ Embedded Chromium variant (`-tags embedded`): bundles
+  chrome-headless-shell 148.0.7778.97 inside the binary via go:embed,
+  extracts on first use into the user cache, wires into
+  findChromeOnPath as a last-resort fallback. Default builds are
+  unaffected (~9 MB); `-tags embedded` builds add ~95-115 MB. linux/arm64
+  is unsupported (Chrome for Testing doesn't publish that combo). (N4)
 - ✅ Default `-streams 24` in CLI — empirical sweet spot
 - ✅ wgturn-server on is-01 deployed, healthy
 - ✅ Cross-compiled handoff bundle (linux/macOS/windows × amd64/arm64)
@@ -75,17 +81,6 @@ Port `cacggghp/vk-turn-proxy/client/slider_captcha.go` into
 
 Eliminates Chrome dependency for SDK embedders. ~70-90% reliability.
 Maintenance burden: VK rotates encryption keys ~quarterly.
-
-### N4 — Embedded Chromium variant (≈3-4 h)
-
-`pkg/wgturn/provider/vk/captchasolve/embedded/`:
-- `go:embed` per-platform Chromium tarball (~80 MB each)
-- Extract on first run to `~/.cache/wgturn/chromium/`
-- Wraps existing `CDPSolver`
-
-Adds ~80 MB per platform to release binary. Use case: standalone
-"download once, no setup" consumer build. SDK embedders that don't
-import this package are unaffected.
 
 ### N5 — 2captcha API solver (≈1 h)
 

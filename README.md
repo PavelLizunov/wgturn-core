@@ -448,6 +448,25 @@ End-to-end coverage in `pkg/wgkernel/kernel_test.go` includes a real
 WG handshake between two in-process kernels using paired memory TUNs
 and curve25519 keys — completes in ~100 ms.
 
+## Optional: bundle Chromium inside the binary
+
+For zero-setup distribution (the user has no Chrome installed and no
+package manager) build with `-tags embedded`:
+
+```sh
+make fetch-chromium      # ~400 MB into pkg/.../embedded/chromium/
+make cli-embedded        # GOOS-specific binary with embedded Chromium
+```
+
+Default builds DO NOT import the embedded package, so the size impact
+is opt-in. With the tag, the binary grows to ~100-125 MB depending on
+platform; on first run it extracts chrome-headless-shell into the
+user cache and reuses it. linux/arm64 is unsupported because Chrome
+for Testing doesn't publish a headless_shell build for it.
+
+See `pkg/wgturn/provider/vk/captchasolve/embedded/` for the
+implementation and `docs/ROADMAP.md` (N4) for the trade-offs.
+
 ## What's NOT yet in v0.0.1-alpha
 
 - WB Stream API provider (analogous to VK's, different upstream).
@@ -465,6 +484,9 @@ and curve25519 keys — completes in ~100 ms.
   resolvconf / systemd-resolved / a `/etc/resolv.conf` rewrite
   depending on distro, all of which are too platform-specific for v0.
   Set DNS by hand (or via your OS network manager).
+- Embedded Chromium for linux/arm64 (Chrome for Testing doesn't
+  publish that combination — Raspberry Pi users keep installing
+  chromium-browser themselves).
 
 ## Provenance & licensing
 
