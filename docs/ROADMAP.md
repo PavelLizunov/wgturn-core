@@ -57,6 +57,18 @@ not calendar-precise. Strikethrough = no longer relevant.
 
 ## Next (priority-ordered, not yet started)
 
+### N8 — Re-implement server-side as `pkg/wgturnsrv` (≈3-5 h)
+
+Bring the server (currently `slovn/wgturn-server`, GPL-3.0 fork of
+`kiper292/vk-turn-proxy`) under our roof as a clean-room re-impl
+under Apache-2.0, exposed via `wgturn-cli serve <conf>`. End state:
+one binary, sing-box-style, both `connect` (client) and `serve`
+(server) roles in the same `wgturn-cli`.
+
+See [issue #2](http://192.168.0.207:18300/slovn/wgturn-core/issues/2)
+for the detailed scope, switch plan for is-01, and don't-regress
+list.
+
 ### N1.5 — macOS / Windows host-side network setup (≈2-3 h)
 
 `wgturn-cli connect` v0 only auto-configures the host (link, addrs,

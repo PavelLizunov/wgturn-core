@@ -82,10 +82,22 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 
 ## Push targets
 
-- `origin` = `ssh://git@192.168.0.207:18222/slovn/wgturn-core` (Forgejo,
-  internal). This is the **only** authoritative remote.
-- Mirror to GitHub / Codeberg has been DISCUSSED but NOT done. See
-  `docs/ROADMAP.md` for the security/legal trade-off.
+- **`wgturn-core`** (this repo, Apache-2.0):
+  - Forgejo: `ssh://git@192.168.0.207:18222/slovn/wgturn-core` (primary)
+  - GitHub:  `git@github.com:PavelLizunov/wgturn-core.git` (private mirror)
+  - Both push URLs are configured under `origin`; `git push origin main`
+    pushes atomically to both.
+
+- **`wgturn-server`** (sibling repo, GPL-3.0 fork of
+  `kiper292/vk-turn-proxy`):
+  - Forgejo: `ssh://git@192.168.0.207:18222/slovn/wgturn-server` ✅
+  - GitHub:  `git@github.com:PavelLizunov/wgturn-server.git` (TODO —
+    Pavel needs to create the empty private repo on GitHub first;
+    once it exists, dual-push setup is one command)
+
+The repo will get re-implemented as `pkg/wgturnsrv` inside `wgturn-core`
+under Apache-2.0 — see ROADMAP N8 / issue #2. After that switch the
+`wgturn-server` repo gets archived.
 
 ## When in doubt
 
