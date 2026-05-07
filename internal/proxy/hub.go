@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/PavelLizunov/wgturn-core/internal/creds"
+	"github.com/PavelLizunov/wgturn-core/internal/framing"
 )
 
 // Hub is the central wgturn proxy. It listens for UDP packets on
@@ -99,7 +100,7 @@ func (h *Hub) Start(ctx context.Context) error {
 	sessionID, _ := uuid.New().MarshalBinary()
 	h.cfg.Logger.Infof("[hub] session-id=%x streams=%d peer-type=%s", sessionID, h.cfg.Streams, h.cfg.PeerType)
 
-	cert, err := generateCert()
+	cert, err := framing.GenerateCertificate()
 	if err != nil {
 		cancel()
 		return fmt.Errorf("generate dtls cert: %w", err)

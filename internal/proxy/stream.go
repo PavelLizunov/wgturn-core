@@ -15,11 +15,11 @@ import (
 
 	"github.com/cbeuw/connutil"
 	"github.com/pion/dtls/v3"
-	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/logging"
 	"github.com/pion/turn/v5"
 
 	"github.com/PavelLizunov/wgturn-core/internal/creds"
+	"github.com/PavelLizunov/wgturn-core/internal/framing"
 )
 
 // credsAdapter bridges proxy.Provider (which returns proxy.Credentials)
@@ -277,13 +277,7 @@ func (s *stream) pumpDTLS(
 	defer c1.Close()
 	defer c2.Close()
 
-	dtlsConn, err := dtls.Client(c1, peerUDP, &dtls.Config{
-		Certificates:          []tls.Certificate{*cert},
-		InsecureSkipVerify:    true,
-		ExtendedMasterSecret:  dtls.RequireExtendedMasterSecret,
-		CipherSuites:          []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		ConnectionIDGenerator: dtls.OnlySendCIDGenerator(),
-	})
+	dtlsConn, err := dtls.Client(c1, peerUDP, framing.NewDTLSConfig(framing.RoleClient, *cert))
 	if err != nil {
 		return fmt.Errorf("dtls client: %w", err)
 	}
@@ -341,11 +335,8 @@ func (s *stream) pumpDTLS(
 	_ = dtlsConn.SetDeadline(time.Time{})
 
 	if sendHandshake {
-		hs := make([]byte, 17)
-		copy(hs[:16], sessionID)
-		hs[16] = byte(s.id)
 		_ = dtlsConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if _, err := dtlsConn.Write(hs); err != nil {
+		if err := framing.WriteHandshake(dtlsConn, sessionID, byte(s.id)); err != nil {
 			return fmt.Errorf("session-id handshake: %w", err)
 		}
 		_ = dtlsConn.SetWriteDeadline(time.Time{})
@@ -429,9 +420,3 @@ type connectedUDPConn struct{ *net.UDPConn }
 // WriteTo ignores the destination address (the connected UDP socket has
 // a fixed remote) and just writes.
 func (c *connectedUDPConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c.Write(p) }
-
-// generateCert produces a self-signed DTLS certificate. Extracted so
-// tests can stub it.
-func generateCert() (tls.Certificate, error) {
-	return selfsign.GenerateSelfSigned()
-}
