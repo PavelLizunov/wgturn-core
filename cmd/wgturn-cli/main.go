@@ -1,20 +1,20 @@
 // Copyright 2026 The wgturn-core Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// wgturn-cli is a small reference binary that exercises wgturn-core on
-// desktop. It accepts either:
+// wgturn-cli is the reference binary for wgturn-core on desktop. Two
+// modes:
 //
-//   - A WireGuard config file (with #@wgt: metadata) via -config <path>.
-//     This is the canonical mode and the format is documented in
-//     pkg/wgconf/doc.go.
+//	wgturn-cli connect <wireguard.conf>
+//	    Single-command VPN: brings up both the wgturn proxy hub and an
+//	    embedded WireGuard kernel from one .conf file. Auto-launches
+//	    headless Chrome for the CDP captcha solver unless --vk-chrome-url
+//	    points at an existing instance. ROADMAP N1.
 //
-//   - Direct flags (-peer, -listen, -turn, -user, -pass, etc.) for the
-//     stub credentials provider, useful for local testing without any
-//     real VK/WB API.
-//
-// The CLI does NOT bring up WireGuard for you — it only runs the
-// wgturn proxy hub. Point your existing WireGuard client at the local
-// listen address to use the tunnel.
+//	wgturn-cli [-config wireguard.conf] [-peer host:port] [-vk-link url] ...
+//	    Legacy hub-only mode: only runs the wgturn proxy. The user must
+//	    bring up WireGuard separately (e.g. `wg-quick up`). Kept for
+//	    backward compatibility with the handoff bundle's existing
+//	    instructions.
 package main
 
 import (
@@ -37,6 +37,124 @@ import (
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
 	"github.com/slovn/wgturn-core/pkg/wgturn/provider/yandex"
 )
+
+func main() {
+	// Subcommand dispatch. The legacy mode (no subcommand, top-level
+	// flags) is preserved verbatim so handoff-bundle instructions still
+	// work; new functionality goes under `connect`.
+	if len(os.Args) >= 2 && os.Args[1] == "connect" {
+		if err := runConnect(os.Args[2:]); err != nil {
+			log.Fatalf("connect: %v", err)
+		}
+		return
+	}
+	if err := runProxy(os.Args[1:]); err != nil {
+		log.Fatalf("%v", err)
+	}
+}
+
+// runProxy is the legacy "hub only" entry point: it parses top-level
+// flags, builds a wgturn.Tunnel, and runs it until SIGINT/SIGTERM.
+// The user is responsible for bringing up WireGuard separately.
+//
+// Extracted from main() so the new `connect` subcommand can share the
+// process lifecycle without forking the codebase.
+func runProxy(args []string) error {
+	fs := flag.NewFlagSet("wgturn-cli", flag.ContinueOnError)
+	var (
+		configPath = fs.String("config", "", "WireGuard config file with #@wgt: metadata")
+		peer       = fs.String("peer", "", "wgturn server (host:port)")
+		listen     = fs.String("listen", "127.0.0.1:9000", "local UDP listen address")
+		streams    = fs.Int("streams", 24,
+			"parallel TURN streams. Default 24 = 6 cred-groups × 4 streams "+
+				"each, the empirical sweet spot for VK Calls TURN per source IP "+
+				"(~200 KB/s aggregate, ~6 captcha solves at startup). Drop to "+
+				"4-16 for fewer captchas at the cost of throughput; raising "+
+				"past 32 starts hitting VK's per-IP anonymous-token rate limit.")
+		peerType = fs.String("peer-type", string(wgturn.PeerTypeProxyV2),
+			"peer type: proxy_v2 / proxy_v1 / wireguard")
+		watchdog = fs.Duration("watchdog", 0, "stream watchdog timeout (0 disables)")
+		udp      = fs.Bool("udp", false, "dial TURN over UDP instead of TCP")
+
+		// VK provider parameters.
+		vkLink = fs.String("vk-link", "",
+			"VK Calls invite link (https://vk.com/call/join/<id>) — selects the VK provider. "+
+				"Pass multiple comma-separated links to fan out across distinct VK call sessions; "+
+				"each cred-group of streams (-streams / 4 by default) gets the next link round-robin, "+
+				"multiplying per-call bandwidth shaping.")
+		vkChromeURL = fs.String("vk-chrome-url", "",
+			"Chrome DevTools URL (e.g. http://192.168.0.142:9222) — enables the CDP captcha solver. "+
+				"Without this flag captchas are read from stdin (slider mode will fail).")
+		vkChromeUA = fs.String("vk-chrome-ua", "",
+			"Override navigator.userAgent in the captcha tab (default: whatever Chrome launched with)")
+
+		// Stub-provider parameters: useful for local testing.
+		stubUser   = fs.String("stub-user", "", "stub provider TURN username")
+		stubPass   = fs.String("stub-pass", "", "stub provider TURN password")
+		stubServer = fs.String("stub-server", "", "stub provider TURN host:port")
+
+		statsEvery = fs.Duration("stats", 5*time.Second, "stats print interval (0 disables)")
+		verbose    = fs.Bool("v", false, "verbose logging")
+	)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	logger := wgturn.StdLogger{MinLevel: wgturn.LevelInfo}
+	if *verbose {
+		logger.MinLevel = wgturn.LevelDebug
+	}
+
+	cfg, err := buildConfig(buildArgs{
+		configPath:  *configPath,
+		peer:        *peer,
+		listen:      *listen,
+		streams:     *streams,
+		peerType:    *peerType,
+		watchdog:    *watchdog,
+		udp:         *udp,
+		vkLink:      *vkLink,
+		vkChromeURL: *vkChromeURL,
+		vkChromeUA:  *vkChromeUA,
+		stubUser:    *stubUser,
+		stubPass:    *stubPass,
+		stubServer:  *stubServer,
+		logger:      logger,
+	})
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
+	tn, err := wgturn.New(cfg)
+	if err != nil {
+		return fmt.Errorf("new: %w", err)
+	}
+
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	startCtx, startCancel := context.WithTimeout(rootCtx, 60*time.Second)
+	if err := tn.Start(startCtx); err != nil {
+		startCancel()
+		return fmt.Errorf("start: %w", err)
+	}
+	startCancel()
+	log.Printf("wgturn up; local listener: %s", tn.LocalAddr())
+
+	if *statsEvery > 0 {
+		go runStatsLoop(rootCtx, tn, *statsEvery)
+	}
+
+	<-sigs
+	log.Print("signal received; stopping")
+	if err := tn.Stop(); err != nil {
+		log.Printf("stop: %v", err)
+	}
+	return nil
+}
 
 // routedProvider dispatches Fetch calls between the VK and Yandex
 // Telemost providers based on the shape of the hint URL.
@@ -97,99 +215,6 @@ func (stdioCaptchaSolver) Solve(ctx context.Context, ch vk.CaptchaChallenge) (vk
 			return vk.Solution{}, fmt.Errorf("empty captcha key")
 		}
 		return vk.Solution{Key: r.key}, nil
-	}
-}
-
-func main() {
-	var (
-		configPath = flag.String("config", "", "WireGuard config file with #@wgt: metadata")
-		peer       = flag.String("peer", "", "wgturn server (host:port)")
-		listen     = flag.String("listen", "127.0.0.1:9000", "local UDP listen address")
-		streams    = flag.Int("streams", 24,
-			"parallel TURN streams. Default 24 = 6 cred-groups × 4 streams "+
-				"each, the empirical sweet spot for VK Calls TURN per source IP "+
-				"(~200 KB/s aggregate, ~6 captcha solves at startup). Drop to "+
-				"4-16 for fewer captchas at the cost of throughput; raising "+
-				"past 32 starts hitting VK's per-IP anonymous-token rate limit.")
-		peerType = flag.String("peer-type", string(wgturn.PeerTypeProxyV2),
-			"peer type: proxy_v2 / proxy_v1 / wireguard")
-		watchdog = flag.Duration("watchdog", 0, "stream watchdog timeout (0 disables)")
-		udp      = flag.Bool("udp", false, "dial TURN over UDP instead of TCP")
-
-		// VK provider parameters.
-		vkLink = flag.String("vk-link", "",
-			"VK Calls invite link (https://vk.com/call/join/<id>) — selects the VK provider. "+
-				"Pass multiple comma-separated links to fan out across distinct VK call sessions; "+
-				"each cred-group of streams (-streams / 4 by default) gets the next link round-robin, "+
-				"multiplying per-call bandwidth shaping.")
-		vkChromeURL = flag.String("vk-chrome-url", "",
-			"Chrome DevTools URL (e.g. http://192.168.0.142:9222) — enables the CDP captcha solver. "+
-				"Without this flag captchas are read from stdin (slider mode will fail).")
-		vkChromeUA = flag.String("vk-chrome-ua", "",
-			"Override navigator.userAgent in the captcha tab (default: whatever Chrome launched with)")
-
-		// Stub-provider parameters: useful for local testing.
-		stubUser   = flag.String("stub-user", "", "stub provider TURN username")
-		stubPass   = flag.String("stub-pass", "", "stub provider TURN password")
-		stubServer = flag.String("stub-server", "", "stub provider TURN host:port")
-
-		statsEvery = flag.Duration("stats", 5*time.Second, "stats print interval (0 disables)")
-		verbose    = flag.Bool("v", false, "verbose logging")
-	)
-	flag.Parse()
-
-	logger := wgturn.StdLogger{MinLevel: wgturn.LevelInfo}
-	if *verbose {
-		logger.MinLevel = wgturn.LevelDebug
-	}
-
-	cfg, err := buildConfig(buildArgs{
-		configPath:  *configPath,
-		peer:        *peer,
-		listen:      *listen,
-		streams:     *streams,
-		peerType:    *peerType,
-		watchdog:    *watchdog,
-		udp:         *udp,
-		vkLink:      *vkLink,
-		vkChromeURL: *vkChromeURL,
-		vkChromeUA:  *vkChromeUA,
-		stubUser:    *stubUser,
-		stubPass:    *stubPass,
-		stubServer:  *stubServer,
-		logger:      logger,
-	})
-	if err != nil {
-		log.Fatalf("config: %v", err)
-	}
-
-	tn, err := wgturn.New(cfg)
-	if err != nil {
-		log.Fatalf("new: %v", err)
-	}
-
-	rootCtx, rootCancel := context.WithCancel(context.Background())
-	defer rootCancel()
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-	startCtx, startCancel := context.WithTimeout(rootCtx, 60*time.Second)
-	if err := tn.Start(startCtx); err != nil {
-		startCancel()
-		log.Fatalf("start: %v", err)
-	}
-	startCancel()
-	log.Printf("wgturn up; local listener: %s", tn.LocalAddr())
-
-	if *statsEvery > 0 {
-		go runStatsLoop(rootCtx, tn, *statsEvery)
-	}
-
-	<-sigs
-	log.Print("signal received; stopping")
-	if err := tn.Stop(); err != nil {
-		log.Printf("stop: %v", err)
 	}
 }
 
