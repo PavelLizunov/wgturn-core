@@ -1,0 +1,5 @@
+# chrome-headless-shell archives are fetched at build time by
+# `make fetch-chromium`. Total ~400 MB across 4 platforms — out of
+# scope for git. Keep the directory tracked (this .gitignore) so
+# go:embed has somewhere to look even on a clean clone before fetch.
+chrome-headless-shell-*.zip

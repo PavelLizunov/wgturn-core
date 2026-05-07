@@ -57,6 +57,13 @@ func TestFindChromeOnPath_NoneFound(t *testing.T) {
 		t.Skip("skipping on Windows: cannot mask C:\\Program Files probes")
 	}
 
+	// Disable the embedded fallback for this test: we want to see the
+	// "no Chrome found" error verbatim, not have an embedded
+	// chrome-headless-shell quietly succeed in the `-tags embedded` build.
+	saved := extractEmbeddedChrome
+	extractEmbeddedChrome = nil
+	t.Cleanup(func() { extractEmbeddedChrome = saved })
+
 	t.Setenv("PATH", t.TempDir()) // empty dir => nothing on $PATH
 
 	_, err := findChromeOnPath()
@@ -71,6 +78,36 @@ func TestFindChromeOnPath_NoneFound(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error message %q missing hint %q", msg, want)
 		}
+	}
+}
+
+// TestFindChromeOnPath_EmbeddedFallbackUsedWhenNothingElse stubs the
+// embedded extractor to verify the fallback wiring activates only when
+// $PATH and the standard install locations are empty. Independent of
+// the `embedded` build tag — exercises the variable directly.
+func TestFindChromeOnPath_EmbeddedFallbackUsedWhenNothingElse(t *testing.T) {
+	if runtime.GOOS == "darwin" || runtime.GOOS == goosWindows {
+		t.Skip("cannot mask system Chrome install paths on this platform")
+	}
+
+	dir := t.TempDir()
+	fakeBin := dir + "/embedded-chrome"
+	if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake embedded chrome: %v", err)
+	}
+
+	saved := extractEmbeddedChrome
+	extractEmbeddedChrome = func() (string, error) { return fakeBin, nil }
+	t.Cleanup(func() { extractEmbeddedChrome = saved })
+
+	t.Setenv("PATH", t.TempDir()) // empty PATH so PATH probe fails
+
+	got, err := findChromeOnPath()
+	if err != nil {
+		t.Fatalf("findChromeOnPath: %v", err)
+	}
+	if got != fakeBin {
+		t.Errorf("findChromeOnPath = %q, want embedded fallback %q", got, fakeBin)
 	}
 }
 

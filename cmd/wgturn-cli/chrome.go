@@ -65,6 +65,12 @@ const (
 	goosWindows = "windows"
 )
 
+// extractEmbeddedChrome is wired up by cmd/wgturn-cli/embedded_yes.go
+// (build tag `embedded`) to extract a bundled chrome-headless-shell
+// archive on first use and return its path. Default builds leave this
+// nil; findChromeOnPath then falls through to the install-hint error.
+var extractEmbeddedChrome func() (string, error)
+
 // findChromeOnPath returns the first Chrome / Chromium binary found,
 // hunting in this order:
 //
@@ -72,6 +78,10 @@ const (
 //     macOS / Windows).
 //  2. Platform-specific standard install locations (macOS .app bundle,
 //     Windows %ProgramFiles%).
+//  3. Embedded chrome-headless-shell extracted into the user cache —
+//     ONLY when the binary was built with `-tags embedded` (otherwise
+//     extractEmbeddedChrome is nil and this step is skipped). The
+//     extract is idempotent: subsequent calls are a single stat.
 //
 // Returns "" with a non-nil error if nothing was found, with a message
 // the CLI surfaces verbatim.
@@ -94,6 +104,14 @@ func findChromeOnPath() (string, error) {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			return p, nil
 		}
+	}
+	if extractEmbeddedChrome != nil {
+		if path, err := extractEmbeddedChrome(); err == nil {
+			return path, nil
+		}
+		// Fall through on embedded-extract failure (e.g. unsupported
+		// platform like linux/arm64) so the user gets the install-hint
+		// message — that's still the correct next step.
 	}
 	return "", errors.New(
 		"no Chrome / Chromium binary found in $PATH or standard install locations; " +
