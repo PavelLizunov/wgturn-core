@@ -105,8 +105,13 @@ func main() {
 		configPath = flag.String("config", "", "WireGuard config file with #@wgt: metadata")
 		peer       = flag.String("peer", "", "wgturn server (host:port)")
 		listen     = flag.String("listen", "127.0.0.1:9000", "local UDP listen address")
-		streams    = flag.Int("streams", 1, "parallel TURN streams")
-		peerType   = flag.String("peer-type", string(wgturn.PeerTypeProxyV2),
+		streams    = flag.Int("streams", 24,
+			"parallel TURN streams. Default 24 = 6 cred-groups × 4 streams "+
+				"each, the empirical sweet spot for VK Calls TURN per source IP "+
+				"(~200 KB/s aggregate, ~6 captcha solves at startup). Drop to "+
+				"4-16 for fewer captchas at the cost of throughput; raising "+
+				"past 32 starts hitting VK's per-IP anonymous-token rate limit.")
+		peerType = flag.String("peer-type", string(wgturn.PeerTypeProxyV2),
 			"peer type: proxy_v2 / proxy_v1 / wireguard")
 		watchdog = flag.Duration("watchdog", 0, "stream watchdog timeout (0 disables)")
 		udp      = flag.Bool("udp", false, "dial TURN over UDP instead of TCP")

@@ -9,6 +9,42 @@ de-Androidified so the same Go code can ship inside desktop binaries,
 iOS/Android apps via gomobile, and (eventually) inside `sing-box` as a
 custom endpoint.
 
+## Use case — emergency channel for white-list mode
+
+`wgturn-core` is positioned as a **survivor-grade emergency tunnel** for
+when standard VPN protocols (OpenVPN, WireGuard, Shadowsocks, xray) are
+all blocked by Russia's "white-list" mode. The design piggy-backs on
+VK Calls' anonymous TURN infrastructure — VK is government-mandated
+and stays reachable even during full network restrictions, so its
+TURN servers act as a free, always-available relay.
+
+**Trade-off**: VK rate-limits anonymous-token requests per source IP,
+which caps throughput at **~200 KB/s (~1.6 Mbps) per device**. That is
+the hard ceiling under the current architecture — adding more streams,
+more call links, or more wgturn-server instances does NOT raise it
+(verified empirically; the bottleneck is on the client→VK uplink, not
+the server side).
+
+What the ~200 KB/s is enough for:
+
+- SSH terminal sessions, sshfs, ssh tunnels for git/etc.
+- IM (Telegram/WhatsApp/Signal text + voice — voice quality is
+  borderline)
+- Web browsing (slow but functional)
+- Email, RSS, simple monitoring
+- Audio streaming at 96-128 kbps
+
+What it is NOT for:
+
+- HD video (YouTube 480p+ stutters; 720p+ unwatchable)
+- Bulk file transfer (backups, downloads, software updates)
+- Torrents
+- Video calls with decent quality
+
+For everyday high-bandwidth use, run a parallel xray/REALITY/VLESS
+tunnel through your own RU VPS — `wgturn-core` is the fallback when
+that gets blocked.
+
 > **Educational and research purposes only.** Using third-party TURN
 > infrastructure to relay traffic that is not a real-time-comms call may
 > violate the terms of service of the providers involved. See `NOTICE`.
