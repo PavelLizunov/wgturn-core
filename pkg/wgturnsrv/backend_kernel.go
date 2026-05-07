@@ -61,7 +61,11 @@ func (b *WGKernelBackend) Open(_ context.Context, _ string) (net.Conn, error) {
 		return nil, errors.New("wgturnsrv: WGKernelBackend already has an active session")
 	}
 	b.opened = true
-	return &kernelBackendConn{bind: b.bind, parent: b}, nil
+	return &kernelBackendConn{
+		bind:   b.bind,
+		parent: b,
+		closeC: make(chan struct{}),
+	}, nil
 }
 
 // release re-arms the backend so a subsequent Open succeeds. Called by
@@ -79,13 +83,18 @@ type kernelBackendConn struct {
 	bind   *kernelBind
 	parent *WGKernelBackend
 	closed atomic.Bool
+	// closeC closes when the conn is Close()'d so blocked Reads can
+	// unblock without polling. Independent of the bind's own
+	// Open/Close cycle (which the kernel drives during normal config
+	// changes).
+	closeC chan struct{}
 }
 
 func (c *kernelBackendConn) Read(p []byte) (int, error) {
 	if c.closed.Load() {
 		return 0, net.ErrClosed
 	}
-	pkt, err := c.bind.recvFromKernel()
+	pkt, err := c.bind.recvFromKernel(c.closeC)
 	if err != nil {
 		return 0, err
 	}
@@ -97,7 +106,7 @@ func (c *kernelBackendConn) Write(p []byte) (int, error) {
 	if c.closed.Load() {
 		return 0, net.ErrClosed
 	}
-	if err := c.bind.sendToKernel(p); err != nil {
+	if err := c.bind.sendToKernel(p, c.closeC); err != nil {
 		return 0, err
 	}
 	return len(p), nil
@@ -105,6 +114,7 @@ func (c *kernelBackendConn) Write(p []byte) (int, error) {
 
 func (c *kernelBackendConn) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
+		close(c.closeC)
 		c.parent.release()
 	}
 	return nil
@@ -133,12 +143,20 @@ func (kernelAddr) String() string  { return kernelAddrName }
 
 // kernelBind implements conn.Bind for in-process traffic between the
 // server backend and a wgkernel.Kernel. It is intentionally simple:
-// two channels, one each direction, plus a single Endpoint that the
-// kernel uses to address its peer.
+// two channels (one per direction) plus a singleton Endpoint that
+// the kernel uses to address its peer.
+//
+// The bind's Open/Close lifecycle follows wireguard-go's expectations:
+// during normal startup and IPC config changes, the kernel does
+// Close → Open cycles. Each Open creates a fresh "open generation"
+// channel; the ReceiveFunc returned from that Open watches its own
+// generation, so a Close from the kernel only cancels the matching
+// ReceiveFunc, leaving the bind ready for a subsequent Open.
+//
+// Permanent shutdown (the user side of the bridge going away) lives
+// on kernelBackendConn instead; its closeC unblocks the bind's
+// sendToKernel / recvFromKernel helpers.
 type kernelBind struct {
-	closed atomic.Bool
-	closeC chan struct{}
-
 	// toKernel carries packets from the proxy backend to the kernel's
 	// ReceiveFunc. Buffered to avoid blocking the proxy on a slow
 	// kernel handshake; UDP semantics — drop on overflow.
@@ -148,8 +166,8 @@ type kernelBind struct {
 	// from this channel.
 	fromKernel chan []byte
 
-	mu       sync.Mutex
-	openedAt uint16
+	mu      sync.Mutex
+	openGen chan struct{} // closed by Close; nil when the bind has no live ReceiveFunc
 
 	readDdl  atomic.Pointer[time.Time]
 	writeDdl atomic.Pointer[time.Time]
@@ -161,7 +179,6 @@ const kernelBindQueueDepth = 256
 
 func newKernelBind() *kernelBind {
 	return &kernelBind{
-		closeC:     make(chan struct{}),
 		toKernel:   make(chan []byte, kernelBindQueueDepth),
 		fromKernel: make(chan []byte, kernelBindQueueDepth),
 		endpoint:   kernelEndpoint{},
@@ -171,24 +188,34 @@ func newKernelBind() *kernelBind {
 // Open implements conn.Bind. The port argument is ignored — there is
 // no real socket — but conn.Bind requires us to report a non-zero
 // "actual" port back to the kernel so its UAPI surface looks sane.
+// A subsequent Open without an intervening Close implicitly closes
+// the previous generation so blocked ReceiveFuncs unblock.
 func (b *kernelBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 	b.mu.Lock()
-	if b.openedAt != 0 {
-		b.mu.Unlock()
-		return nil, 0, errors.New("wgturnsrv: kernelBind already open")
+	if b.openGen != nil {
+		// Implicit close: unblock the previous ReceiveFunc before
+		// arming the new one. Using a select so re-Open by the same
+		// caller (rare but legal) doesn't double-close.
+		select {
+		case <-b.openGen:
+		default:
+			close(b.openGen)
+		}
 	}
+	gen := make(chan struct{})
+	b.openGen = gen
+	b.mu.Unlock()
+
 	if port == 0 {
 		port = 1 // any non-zero placeholder
 	}
-	b.openedAt = port
-	b.mu.Unlock()
 
 	recv := func(packets [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
-		// Block until a packet arrives or the bind closes. We always
-		// produce at most one packet per call; multi-packet batches
+		// Block until a packet arrives or this open generation closes.
+		// We produce at most one packet per call; multi-packet batches
 		// don't help here because the source is a single channel.
 		select {
-		case <-b.closeC:
+		case <-gen:
 			return 0, net.ErrClosed
 		case pkt, ok := <-b.toKernel:
 			if !ok {
@@ -203,11 +230,21 @@ func (b *kernelBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 	return []conn.ReceiveFunc{recv}, port, nil
 }
 
-// Close implements conn.Bind. Idempotent; subsequent ReceiveFunc calls
-// return net.ErrClosed and Send returns the same.
+// Close implements conn.Bind. Idempotent: closes the current open
+// generation so its ReceiveFunc returns net.ErrClosed, and clears the
+// pointer so a subsequent Open starts a fresh generation. Repeated
+// Close calls without an intervening Open are safe no-ops.
 func (b *kernelBind) Close() error {
-	if b.closed.CompareAndSwap(false, true) {
-		close(b.closeC)
+	b.mu.Lock()
+	gen := b.openGen
+	b.openGen = nil
+	b.mu.Unlock()
+	if gen != nil {
+		select {
+		case <-gen:
+		default:
+			close(gen)
+		}
 	}
 	return nil
 }
@@ -216,11 +253,9 @@ func (b *kernelBind) Close() error {
 func (b *kernelBind) SetMark(uint32) error { return nil }
 
 // Send implements conn.Bind. The kernel calls this to emit a packet
-// towards its peer; we hand the bytes to the backend Reader.
+// towards its peer; we hand the bytes to the backend Reader. Drops on
+// overflow (UDP semantics — higher layers retransmit if they care).
 func (b *kernelBind) Send(bufs [][]byte, _ conn.Endpoint) error {
-	if b.closed.Load() {
-		return net.ErrClosed
-	}
 	for _, p := range bufs {
 		if len(p) == 0 {
 			continue
@@ -230,8 +265,6 @@ func (b *kernelBind) Send(bufs [][]byte, _ conn.Endpoint) error {
 		copy(cp, p)
 		select {
 		case b.fromKernel <- cp:
-		case <-b.closeC:
-			return net.ErrClosed
 		default:
 			// fromKernel is full — drop the packet. UDP semantics:
 			// the kernel re-transmits if the higher layer cares.
@@ -251,20 +284,17 @@ func (b *kernelBind) ParseEndpoint(string) (conn.Endpoint, error) {
 // channel-based queueing above.
 func (b *kernelBind) BatchSize() int { return 1 }
 
-// sendToKernel buffers a packet for the next ReceiveFunc call.
-// Returns net.ErrClosed if the bind is closed; drops the packet
-// silently if the queue is full (UDP semantics).
-func (b *kernelBind) sendToKernel(p []byte) error {
-	if b.closed.Load() {
-		return net.ErrClosed
-	}
+// sendToKernel buffers a packet for the next ReceiveFunc call. The
+// connCloseC channel comes from the user-side conn so a Close on the
+// backend conn unblocks any in-flight Send.
+func (b *kernelBind) sendToKernel(p []byte, connCloseC <-chan struct{}) error {
 	cp := make([]byte, len(p))
 	copy(cp, p)
 	deadlineCh := b.writeDeadlineChannel()
 	select {
 	case b.toKernel <- cp:
 		return nil
-	case <-b.closeC:
+	case <-connCloseC:
 		return net.ErrClosed
 	case <-deadlineCh:
 		return errBindDeadline
@@ -276,15 +306,12 @@ func (b *kernelBind) sendToKernel(p []byte) error {
 	}
 }
 
-// recvFromKernel blocks until the next packet from the kernel arrives
-// or the read deadline fires.
-func (b *kernelBind) recvFromKernel() ([]byte, error) {
-	if b.closed.Load() {
-		return nil, net.ErrClosed
-	}
+// recvFromKernel blocks until the next packet from the kernel arrives,
+// the read deadline fires, or the user-side conn is closed.
+func (b *kernelBind) recvFromKernel(connCloseC <-chan struct{}) ([]byte, error) {
 	deadlineCh := b.readDeadlineChannel()
 	select {
-	case <-b.closeC:
+	case <-connCloseC:
 		return nil, net.ErrClosed
 	case pkt := <-b.fromKernel:
 		return pkt, nil
