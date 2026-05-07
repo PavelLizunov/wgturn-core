@@ -55,9 +55,24 @@ func main() {
 				log.Fatalf("connect: %v", err)
 			}
 			return
+		case "connect-url":
+			if err := runConnectURL(os.Args[2:]); err != nil {
+				log.Fatalf("connect-url: %v", err)
+			}
+			return
 		case "serve":
 			if err := runServe(os.Args[2:]); err != nil {
 				log.Fatalf("serve: %v", err)
+			}
+			return
+		case "provision-url":
+			if err := runProvisionURL(os.Args[2:]); err != nil {
+				log.Fatalf("provision-url: %v", err)
+			}
+			return
+		case "revoke-url":
+			if err := runRevokeURL(os.Args[2:]); err != nil {
+				log.Fatalf("revoke-url: %v", err)
 			}
 			return
 		}

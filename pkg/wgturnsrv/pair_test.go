@@ -25,8 +25,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
@@ -267,25 +269,25 @@ func TestPair_HandshakeTraversesStack(t *testing.T) {
 	}
 }
 
-// prefixLogger forwards lib output into t.Log with a per-component
-// prefix so failure dumps remain attributable.
+// prefixLogger writes log output directly to os.Stderr with a per-
+// component prefix. We deliberately avoid t.Logf because wgkernel's
+// internal goroutines (RoutineTUNEventReader, encryption workers)
+// can race with t.Cleanup and emit one last log line after the test
+// returns, which trips t.Logf's "Log called after test completion"
+// panic under -race. Stderr has no such constraint.
 type prefixLogger struct {
 	t      *testing.T
 	prefix string
 }
 
-func (l prefixLogger) Debugf(format string, args ...any) {
-	l.t.Logf("[%s][debug] "+format, append([]any{l.prefix}, args...)...)
+func (l prefixLogger) emit(level, format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "    %s: [%s][%s] %s\n",
+		l.t.Name(), l.prefix, level, fmt.Sprintf(format, args...))
 }
-func (l prefixLogger) Infof(format string, args ...any) {
-	l.t.Logf("[%s][info] "+format, append([]any{l.prefix}, args...)...)
-}
-func (l prefixLogger) Warnf(format string, args ...any) {
-	l.t.Logf("[%s][warn] "+format, append([]any{l.prefix}, args...)...)
-}
-func (l prefixLogger) Errorf(format string, args ...any) {
-	l.t.Logf("[%s][error] "+format, append([]any{l.prefix}, args...)...)
-}
+func (l prefixLogger) Debugf(format string, args ...any) { l.emit("debug", format, args...) }
+func (l prefixLogger) Infof(format string, args ...any)  { l.emit("info", format, args...) }
+func (l prefixLogger) Warnf(format string, args ...any)  { l.emit("warn", format, args...) }
+func (l prefixLogger) Errorf(format string, args ...any) { l.emit("error", format, args...) }
 
 // Compile-time check that prefixLogger satisfies wgturn.Logger.
 var _ wgturn.Logger = prefixLogger{}
