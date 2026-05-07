@@ -185,3 +185,94 @@ download. Update procedure:
   or `sudo ip link del wgtest`.
 - Probe scripts in `/tmp/` are session-scratch — delete after use:
   `rm -f /tmp/vk-* /tmp/probe-* /tmp/bw-* /tmp/wgtest.conf`
+
+## Operating the wgturn server (current state)
+
+The production server lives on **is-01** (`93.95.226.167`) as a Docker
+container running `cacggghp/vk-turn-proxy` (the GPL-3.0 upstream we
+forked into `slovn/wgturn-server`). Day-to-day operations:
+
+```bash
+# Status:
+ssh user@192.168.0.207 "ssh root@93.95.226.167 'docker ps --filter name=wgturn-server'"
+
+# Logs:
+ssh user@192.168.0.207 "ssh root@93.95.226.167 'docker logs --tail 100 wgturn-server'"
+
+# Restart (rare; almost always you don't need to):
+ssh user@192.168.0.207 "ssh root@93.95.226.167 'docker restart wgturn-server'"
+
+# Inspect WireGuard state behind it:
+ssh user@192.168.0.207 "ssh root@93.95.226.167 'wg show wg0'"
+```
+
+The wg interface (`wg0`) is what the server forwards into. Its config
+is at `/etc/wireguard/wg0.conf`. Use `scripts/provision-user.sh` /
+`list-users.sh` / `revoke-user.sh` rather than editing `wg0.conf` by
+hand — they apply changes via `wg syncconf` without bouncing the
+interface, so existing sessions don't drop.
+
+### When the server is down
+
+Symptoms (from a client running `wgturn-cli connect`):
+- `[stream N] allocation ok` followed by 30-60 s of silence then
+  `failed to allocate: all retransmissions failed` per stream.
+- Or: streams allocate OK, but no exit traffic — `curl ifconfig.me`
+  through the tunnel never returns. The TURN side is fine, the
+  server side just isn't picking up the relay packets.
+
+Triage:
+
+1. `wg show wg0` on is-01 — is `peer:` listed for the client? If
+   `latest handshake: ` is "never" or older than ~5 min, the WG
+   handshake from us isn't reaching the wg daemon. Suggests
+   `wgturn-server` is wedged on the DTLS side.
+2. `docker logs wgturn-server --tail 100` — look for stuck
+   "Handshake failed:" or "backend write error" loops.
+3. Restart: `docker restart wgturn-server` is the blunt fix. Takes
+   ~3 s; existing client sessions reconnect on their own (each
+   stream's runOnce retries with backoff, see
+   `internal/proxy/stream.go`).
+
+### Replacing the server (ROADMAP N8 — planned, not done)
+
+`docs/N8-SERVER-PLAN.md` is the detailed runbook for replacing the
+GPL fork with our own `wgturn-cli serve` Apache-2.0 implementation.
+TL;DR for ops:
+
+1. Build `wgturn-cli` with both `connect` and `serve` subcommands
+   from `wgturn-core` main.
+2. Drop binary on is-01 next to existing `/opt/wgturn-server/`.
+3. Run new binary on **port 56001** (not 56000) parallel to old one.
+4. From .142 use a test client config pointing at `:56001`. Verify
+   exit IP through the new path.
+5. **Soak for 24 h** before promoting. No exceptions — Pavel's only
+   emergency tunnel goes through this server.
+6. Maintenance window: stop old, restart new on `:56000`. Existing
+   handoff configs keep working.
+7. Keep old `/opt/wgturn-server/` for a sprint as rollback.
+
+Until N8 lands the server runbook stays the docker-based one above.
+
+### Provisioning new VPN users (admin)
+
+The day-to-day "give Alice access" flow is in
+[scripts/CLAUDE.md](../scripts/CLAUDE.md). Quick recap:
+
+```bash
+# from .207 (or container with SSH to .207):
+SSH_PROXY="" ./scripts/provision-user.sh alice > ~/wgturn-handoff/users/alice.conf
+
+# distribute alice.conf + a wgturn-cli binary to alice via secure channel:
+scp ~/wgturn-handoff/users/alice.conf alice@laptop:
+scp ~/wgturn-handoff/wgturn-cli-linux-amd64 alice@laptop:
+
+# alice runs:
+sudo ./wgturn-cli-linux-amd64 connect alice.conf -v
+
+# revoke when done:
+SSH_PROXY="" ./scripts/revoke-user.sh alice
+```
+
+The scripts shell out to `wg`/`wg syncconf` over ssh; no downtime.
+IP allocation is automatic (next free /32 in `10.7.0.0/24`).

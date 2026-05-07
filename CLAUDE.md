@@ -13,7 +13,11 @@ sessions don't have to re-learn it.
 4. **`docs/FINDINGS.md`** — things we learned the hard way, do NOT re-test.
 5. **`docs/ARCHITECTURE.md`** — design rationale, why the code is shaped
    the way it is.
-6. Module-level `CLAUDE.md` files (e.g. `pkg/wgturn/provider/vk/CLAUDE.md`)
+6. **`docs/N8-SERVER-PLAN.md`** — detailed step-by-step plan for the
+   server-side re-implementation (in flight; the next big chunk of
+   work). Read before opening `pkg/wgturnsrv/` or touching the wire
+   format.
+7. Module-level `CLAUDE.md` files (e.g. `pkg/wgturn/provider/vk/CLAUDE.md`)
    — package-specific gotchas; read when touching that package.
 
 ## What this project is
@@ -51,6 +55,7 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 | `cmd/wgturn-cli` legacy mode | ✅ working, default `-streams 24` (kept for handoff backward compat) |
 | `cmd/wgturn-cli connect` subcommand | ✅ Linux auto host-setup; macOS/Windows print manual `ip`/`ifconfig` hints |
 | `scripts/{provision,list,revoke}-user.sh` | ✅ server-side admin: keypair-gen + IP-alloc + wg-syncconf, no downtime |
+| `pkg/wgturnsrv` (server-side proxy) | ⏳ NOT YET — clean-room re-impl planned, see `docs/N8-SERVER-PLAN.md` and issue #2; current server is `slovn/wgturn-server` (GPL fork) on is-01 |
 | Server (`wgturn-server` on is-01) | ✅ Up, healthcheck disabled |
 | CI (Forgejo Actions) | ✅ green; transient `data.forgejo.org` checkout timeouts ~10% — retrigger via empty commit |
 
@@ -70,6 +75,16 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 - **Don't ship handoff bundle with WG private keys + IPs into the public
   repo** — it lives in `~/wgturn-handoff/` on the homelab .207, NOT in
   git. Keep it that way.
+- **Don't copy GPL code from `slovn/wgturn-server`** when working on
+  ROADMAP N8 (server-side re-implementation). The whole point of the
+  re-impl is to keep `wgturn-core` Apache-2.0; cross-contamination
+  defeats the purpose. Read upstream once for protocol understanding,
+  close it, write from a blank buffer. See `docs/N8-SERVER-PLAN.md`
+  "Mission constraints".
+- **Don't deploy the new server on is-01 without finishing the
+  parallel-port soak.** is-01 is Pavel's only emergency tunnel;
+  breaking it has real-world cost. The S9 plan in `N8-SERVER-PLAN.md`
+  is the only sanctioned switch path.
 
 ## Commit style
 
