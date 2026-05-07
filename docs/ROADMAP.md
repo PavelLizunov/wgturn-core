@@ -64,6 +64,27 @@ not calendar-precise. Strikethrough = no longer relevant.
   pion/turn → Server → wgkernel#2 in ~150 ms, race-clean on CI. (N8
   coding; is-01 switch is a separate operational window — see
   `docs/HANDBOOK.md` "Switching is-01".)
+- ✅ Single-string distribution via `wgturn://` URLs:
+  - `pkg/wgshare` is the public URL codec. `Profile.Encode` produces
+    `wgturn://<base64url-payload>#label`; `Parse` decodes back. The
+    payload is versioned JSON (v=1) carrying server pubkey, freshly
+    generated client privkey, optional PSK, DTLS endpoint, assigned
+    /CIDR, AllowedIPs, DNS, MTU, keepalive. The VK Calls invite is
+    intentionally NOT in the URL (rotates per session, supplied at
+    connect-time).
+  - `pkg/wgadmin.Server.Provision` is the Go port of
+    `provision-user.sh`: pure-Go curve25519 keygen + PSK, atomic
+    `wg0.conf` rewrite with `# wgturn-name = …` tagged [Peer] blocks,
+    `wg syncconf` so existing sessions don't drop. Symmetric Revoke /
+    List. Single source of truth stays in wg0.conf — embedders
+    running their own provisioning UI import the same primitives.
+  - CLI: `wgturn-cli provision-url <name>...` (batch URL emit),
+    `wgturn-cli connect-url <wgturn://...> --vk-link <url>` (client
+    by URL), `wgturn-cli revoke-url <name>...` (cleanup).
+  - `examples/vpn-client/` is a ~120-line embedder template: take a
+    URL + VK link, drive Tunnel → Kernel → TUN, exit on SIGINT.
+    Documents the deliberate omissions (host networking, auto-Chrome,
+    reconnect loop) embedders are expected to fill.
 
 ## Next (priority-ordered, not yet started)
 

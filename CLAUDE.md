@@ -17,8 +17,10 @@ sessions don't have to re-learn it.
    server-side re-implementation (in flight; the next big chunk of
    work). Read before opening `pkg/wgturnsrv/` or touching the wire
    format.
-7. Module-level `CLAUDE.md` files (e.g. `pkg/wgturn/provider/vk/CLAUDE.md`)
-   — package-specific gotchas; read when touching that package.
+7. Module-level `CLAUDE.md` files (e.g. `pkg/wgturn/provider/vk/CLAUDE.md`,
+   `pkg/wgturnsrv/CLAUDE.md`, `pkg/wgshare/CLAUDE.md`,
+   `pkg/wgadmin/CLAUDE.md`) — package-specific gotchas; read when
+   touching that package.
 
 ## What this project is
 
@@ -54,10 +56,15 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 | `pkg/wgkernel` (embedded WG userspace) | ✅ stable; wired into the CLI's `connect` subcommand |
 | `internal/framing` (proxy_v2 wire-format primitives) | ✅ shared by client + server; 17-byte handshake encoder/decoder + DTLS config builder |
 | `pkg/wgturnsrv` (server-side proxy, Apache-2.0) | ✅ clean-room re-impl, demuxer + Backend interface (`UDPBackend`, `WGKernelBackend`); pair_test green; replaces `slovn/wgturn-server` (GPL) once is-01 is switched |
+| `pkg/wgshare` (`wgturn://` URL codec) | ✅ Profile struct + Encode/Parse; v=1 wire format; round-trip tested |
+| `pkg/wgadmin` (server-side WG provisioning) | ✅ pure-Go keygen + IP allocator + wg0.conf editor + `wg syncconf`; Provision/Revoke/List API for embedders |
 | `cmd/wgturn-cli` legacy mode | ✅ working, default `-streams 24` (kept for handoff backward compat) |
 | `cmd/wgturn-cli connect` subcommand | ✅ Linux auto host-setup; macOS/Windows print manual `ip`/`ifconfig` hints |
 | `cmd/wgturn-cli serve` subcommand | ✅ binds DTLS, drives Backend; `udp:host:port` ready, `wgkernel` deferred until multi-peer fan-out |
-| `scripts/{provision,list,revoke}-user.sh` | ✅ server-side admin: keypair-gen + IP-alloc + wg-syncconf, no downtime |
+| `cmd/wgturn-cli provision-url` / `revoke-url` | ✅ batch CLI emitting `wgturn://...#name` URLs from a local wg0.conf, applying changes via `wg syncconf` |
+| `cmd/wgturn-cli connect-url` | ✅ client driven by a wgturn:// URL plus `--vk-link <url>` (runtime parameter — VK link is NOT in the URL) |
+| `examples/vpn-client/` | ✅ ~120-line embedder template; take URL + VK link → drive Tunnel + Kernel + TUN |
+| `scripts/{provision,list,revoke}-user.sh` | ✅ server-side admin (legacy shell flow, coexists with `provision-url` on same wg0.conf) |
 | Server (is-01) | ✅ legacy `slovn/wgturn-server` (GPL fork) running; `wgturn-cli serve` switch pending operational window — see HANDBOOK |
 | CI (Forgejo Actions) | ✅ green; transient `data.forgejo.org` checkout timeouts ~10% — retrigger via empty commit |
 

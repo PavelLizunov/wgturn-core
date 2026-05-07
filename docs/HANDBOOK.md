@@ -307,8 +307,56 @@ authoritative for production.
 
 ### Provisioning new VPN users (admin)
 
-The day-to-day "give Alice access" flow is in
-[scripts/CLAUDE.md](../scripts/CLAUDE.md). Quick recap:
+Two paths, depending on what the user gets distributed.
+
+#### Path 1 — `wgturn-cli provision-url` (single-string, recommended)
+
+Same binary as everything else. Generates fresh keys + IPs in one
+shot, syncs the live interface, and prints a `wgturn://` URL the
+user can paste into `wgturn-cli connect-url` (or your embedder
+example) along with whatever VK Calls link is current.
+
+```bash
+# Run on the wg-server box. For batches, list multiple names.
+sudo wgturn-cli provision-url \
+    --conf /etc/wireguard/wg0.conf \
+    --interface wg0 \
+    --subnet 10.7.0.0/24 \
+    --endpoint 93.95.226.167:56000 \
+    --keepalive 25s \
+    alice bob carol
+# stdout, one URL per name:
+# wgturn://eyJ2IjoxLCJzcCI6...#alice
+# wgturn://eyJ2IjoxLCJzcCI6...#bob
+# wgturn://eyJ2IjoxLCJzcCI6...#carol
+
+# Distribute each URL through a trust channel (Signal, Threema).
+# The user runs:
+sudo wgturn-cli connect-url \
+    'wgturn://eyJ2IjoxLCJzcCI6...#alice' \
+    --vk-link 'https://vk.com/call/join/<callID>' -v
+```
+
+The URL bundles every key, IP, and option. The VK link is a runtime
+parameter — it rotates per session and is portable across users, so
+embedding it in the URL would invalidate every issued URL on every
+rotation. Hand the user the URL once; they paste a fresh VK invite
+on every connect.
+
+To revoke:
+```bash
+sudo wgturn-cli revoke-url --conf /etc/wireguard/wg0.conf alice
+```
+
+The legacy `provision-user.sh` / `list-users.sh` / `revoke-user.sh`
+shell scripts in `scripts/` continue to work against the same
+`wg0.conf` — both paths use the `# wgturn-name = <name>` tag, so
+peers provisioned via either tool list correctly through either.
+
+#### Path 2 — Legacy `.conf` distribution (still supported)
+
+Useful when the user is still on a wgturn-cli vintage that predates
+`connect-url`, or when you want a wg-quick-compatible artifact:
 
 ```bash
 # from .207 (or container with SSH to .207):
@@ -325,5 +373,12 @@ sudo ./wgturn-cli-linux-amd64 connect alice.conf -v
 SSH_PROXY="" ./scripts/revoke-user.sh alice
 ```
 
-The scripts shell out to `wg`/`wg syncconf` over ssh; no downtime.
-IP allocation is automatic (next free /32 in `10.7.0.0/24`).
+`provision-url --print-conf` also emits a wg-quick block alongside
+the URL if you want to support both clients from a single command:
+
+```bash
+sudo wgturn-cli provision-url \
+    --print-conf \
+    --endpoint 93.95.226.167:56000 \
+    alice
+```
