@@ -31,7 +31,7 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/turn/v5"
 
-	"github.com/slovn/wgturn-core/internal/proxy"
+	"github.com/PavelLizunov/wgturn-core/internal/proxy"
 )
 
 const (

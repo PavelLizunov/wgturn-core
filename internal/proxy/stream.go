@@ -19,7 +19,7 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/turn/v5"
 
-	"github.com/slovn/wgturn-core/internal/creds"
+	"github.com/PavelLizunov/wgturn-core/internal/creds"
 )
 
 // credsAdapter bridges proxy.Provider (which returns proxy.Credentials)

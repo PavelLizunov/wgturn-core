@@ -15,7 +15,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // wsFetchTurn drives the GOLOOM media-server handshake on

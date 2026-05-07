@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // errCaptchaChallenge is the sentinel that the apiClient wraps around

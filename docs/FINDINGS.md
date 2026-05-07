@@ -199,8 +199,8 @@ multiple physical devices/VPSes. For a single user it doesn't.
 
 Embedders (e.g., a hypothetical custom VPN client) can:
 ```go
-import "github.com/slovn/wgturn-core/pkg/wgturn"
-import "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+import "github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+import "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 // pick captcha solver of choice
 tn, _ := wgturn.New(wgturn.Config{Provider: vk.New(...)})
 tn.Start(ctx)

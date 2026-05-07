@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // MetaPrefix is the prefix that introduces a wgturn metadata line.

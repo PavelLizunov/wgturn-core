@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	vkprov "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
+	vkprov "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
 )
 
 // stubSolver returns the configured solution / error and counts calls.

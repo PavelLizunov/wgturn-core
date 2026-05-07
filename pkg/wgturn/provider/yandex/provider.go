@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // cloudAPIHost is the production Telemost API origin.

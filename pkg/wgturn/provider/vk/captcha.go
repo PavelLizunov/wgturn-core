@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // CaptchaChallenge is the structured form of VK's captcha-needed

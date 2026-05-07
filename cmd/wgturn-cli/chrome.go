@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // chromeDefaultDebugPort is the loopback port we tell Chrome to listen

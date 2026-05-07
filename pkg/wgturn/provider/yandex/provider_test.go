@@ -16,8 +16,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/yandex"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/yandex"
 )
 
 // TestProvider_HappyPath_InlineCreds — older Telemost deployments

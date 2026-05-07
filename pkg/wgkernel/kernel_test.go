@@ -21,8 +21,8 @@ import (
 
 	"golang.org/x/crypto/curve25519"
 
-	"github.com/slovn/wgturn-core/pkg/wgkernel"
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgkernel"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // keyPair returns a (private, public) base64 WireGuard key pair.

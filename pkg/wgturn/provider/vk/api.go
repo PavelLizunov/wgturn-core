@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // Default endpoint hosts. Constants instead of variables so the

@@ -17,8 +17,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
-	vkprov "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+	vkprov "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 // Compile-time interface satisfaction check.

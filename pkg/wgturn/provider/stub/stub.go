@@ -9,7 +9,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // Provider is a CredentialsProvider that returns a constant Credentials

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	vkprov "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+	vkprov "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 // Compile-time interface satisfaction check.

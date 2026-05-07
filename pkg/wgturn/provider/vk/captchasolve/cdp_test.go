@@ -18,7 +18,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	vkprov "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+	vkprov "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 // TestCDPSolver_RejectsEmptyRedirect — without a RedirectURI we have

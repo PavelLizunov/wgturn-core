@@ -30,12 +30,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgconf"
-	"github.com/slovn/wgturn-core/pkg/wgturn"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/yandex"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgconf"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/stub"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/yandex"
 )
 
 func main() {

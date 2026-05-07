@@ -5,7 +5,7 @@
 
 package main
 
-import "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve/embedded"
+import "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk/captchasolve/embedded"
 
 // init wires findChromeOnPath's last-resort embedded-Chromium fallback.
 // Only compiled with `-tags embedded`; default builds leave

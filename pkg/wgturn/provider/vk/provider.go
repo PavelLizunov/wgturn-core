@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // Provider is a wgturn.CredentialsProvider that obtains TURN

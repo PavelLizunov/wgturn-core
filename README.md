@@ -170,8 +170,8 @@ import (
     "context"
     "log"
 
-    "github.com/slovn/wgturn-core/pkg/wgturn"
-    "github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/stub"
 )
 
 func main() {
@@ -316,8 +316,8 @@ DevTools Protocol:
 
 ```go
 import (
-    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
-    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk/captchasolve"
 )
 
 solver := &captchasolve.CDPSolver{
@@ -359,8 +359,8 @@ longer pass slider mode (the only mode VK serves right now).
 
 ```go
 import (
-    "github.com/slovn/wgturn-core/pkg/wgturn"
-    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 cfg := wgturn.Config{
@@ -404,9 +404,9 @@ single-binary VPN client.
 
 ```go
 import (
-    "github.com/slovn/wgturn-core/pkg/wgkernel"
-    "github.com/slovn/wgturn-core/pkg/wgturn"
-    "github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgkernel"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+    "github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 // 1. Bring up the TURN proxy.

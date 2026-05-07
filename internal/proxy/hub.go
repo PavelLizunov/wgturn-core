@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/slovn/wgturn-core/internal/creds"
+	"github.com/PavelLizunov/wgturn-core/internal/creds"
 )
 
 // Hub is the central wgturn proxy. It listens for UDP packets on

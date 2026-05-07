@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgconf"
-	"github.com/slovn/wgturn-core/pkg/wgkernel"
-	"github.com/slovn/wgturn-core/pkg/wgturn"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/yandex"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgconf"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgkernel"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/yandex"
 )
 
 // connectStartTimeout caps how long we'll wait for the wgturn hub to

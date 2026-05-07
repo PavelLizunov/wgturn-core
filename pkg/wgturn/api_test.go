@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/stub"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/stub"
 )
 
 // --- Config validation -----------------------------------------------------

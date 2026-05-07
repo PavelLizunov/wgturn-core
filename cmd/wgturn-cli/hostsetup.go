@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/slovn/wgturn-core/pkg/wgkernel"
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgkernel"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 const goosLinux = "linux"

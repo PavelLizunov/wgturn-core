@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/slovn/wgturn-core/internal/proxy"
+	"github.com/PavelLizunov/wgturn-core/internal/proxy"
 )
 
 // Tunnel is one running wgturn instance. Construct with New, then call

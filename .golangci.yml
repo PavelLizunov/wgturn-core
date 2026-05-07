@@ -30,7 +30,7 @@ linters:
 
 linters-settings:
   goimports:
-    local-prefixes: github.com/slovn/wgturn-core
+    local-prefixes: github.com/PavelLizunov/wgturn-core
   revive:
     rules:
       - name: package-comments

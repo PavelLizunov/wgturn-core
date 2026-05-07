@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slovn/wgturn-core/pkg/wgconf"
-	"github.com/slovn/wgturn-core/pkg/wgkernel"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgconf"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgkernel"
 )
 
 // TestBuildKernelConfig_HappyPath confirms the field-by-field copy

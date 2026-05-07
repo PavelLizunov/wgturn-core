@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
-	"github.com/slovn/wgturn-core/pkg/wgturn/provider/vk"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn/provider/vk"
 )
 
 // mockVKServer stands in for login.vk.ru, api.vk.ru, and calls.okcdn.ru.

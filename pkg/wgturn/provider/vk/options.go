@@ -6,7 +6,7 @@ package vk
 import (
 	"net/http"
 
-	"github.com/slovn/wgturn-core/pkg/wgturn"
+	"github.com/PavelLizunov/wgturn-core/pkg/wgturn"
 )
 
 // Option mutates a Provider during construction. Apply via vk.New(opts...).
