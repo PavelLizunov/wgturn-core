@@ -50,6 +50,7 @@ limitation. Multiple call links / streams hit the same per-IP cap.
 | `pkg/wgkernel` (embedded WG userspace) | ✅ stable; wired into the CLI's `connect` subcommand |
 | `cmd/wgturn-cli` legacy mode | ✅ working, default `-streams 24` (kept for handoff backward compat) |
 | `cmd/wgturn-cli connect` subcommand | ✅ Linux auto host-setup; macOS/Windows print manual `ip`/`ifconfig` hints |
+| `scripts/{provision,list,revoke}-user.sh` | ✅ server-side admin: keypair-gen + IP-alloc + wg-syncconf, no downtime |
 | Server (`wgturn-server` on is-01) | ✅ Up, healthcheck disabled |
 | CI (Forgejo Actions) | ✅ green; transient `data.forgejo.org` checkout timeouts ~10% — retrigger via empty commit |
 

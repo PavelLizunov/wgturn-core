@@ -49,6 +49,9 @@ not calendar-precise. Strikethrough = no longer relevant.
   is unsupported (Chrome for Testing doesn't publish that combo). (N4)
 - ✅ Default `-streams 24` in CLI — empirical sweet spot
 - ✅ wgturn-server on is-01 deployed, healthy
+- ✅ Server-side user provisioning: `scripts/provision-user.sh`,
+  `list-users.sh`, `revoke-user.sh` — POSIX sh, ssh+wg-syncconf, no
+  downtime. e2e roundtrip verified on is-01. (N7)
 - ✅ Cross-compiled handoff bundle (linux/macOS/windows × amd64/arm64)
 - ✅ CI green on Forgejo Actions (Go 1.25, race detector, golangci-lint)
 

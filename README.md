@@ -448,6 +448,15 @@ End-to-end coverage in `pkg/wgkernel/kernel_test.go` includes a real
 WG handshake between two in-process kernels using paired memory TUNs
 and curve25519 keys — completes in ~100 ms.
 
+## Provisioning new users
+
+`scripts/provision-user.sh <name>` generates a fresh keypair, allocates
+the next free `10.7.0.<n>/32` slot on the wgturn-server, appends a
+`[Peer]` block (live, via `wg syncconf` — no downtime), and emits the
+ready-to-use client `.conf` to stdout. `list-users.sh` shows the
+roster, `revoke-user.sh <name>` tears a peer back down. See
+`scripts/CLAUDE.md` for env vars (SERVER_HOST, SSH_PROXY, etc.).
+
 ## Optional: bundle Chromium inside the binary
 
 For zero-setup distribution (the user has no Chrome installed and no
