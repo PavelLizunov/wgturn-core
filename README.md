@@ -126,7 +126,42 @@ Three framing modes are wire-compatible with `kiper292/vk-turn-proxy` v2:
 | `proxy_v1` | yes | no | legacy single-user servers |
 | `wireguard` | no | no | direct relay, ban-prone, debugging |
 
-## Quick start (desktop)
+## One-command quick start — `wgturn-cli connect`
+
+For end users on Linux/macOS/Windows desktop, the fastest path is a
+single command:
+
+```sh
+sudo ./wgturn-cli connect /etc/wgturn/myvpn.conf
+```
+
+This stands up everything in one process:
+
+- the **wgturn proxy hub** (this library) ;
+- the **embedded WireGuard kernel** (`pkg/wgkernel`), so you do *not*
+  need a separate `wg-quick up` ;
+- **headless Chrome**, auto-spawned for the CDP captcha solver
+  (override with `--vk-chrome-url http://...:9222` if you already run
+  Chrome yourself, or pass `--vk-chrome-auto=false` to disable
+  auto-launch) ;
+- on Linux, **host-side networking** (`ip link set up`, `ip addr add`,
+  `ip route add`) so traffic actually flows. macOS/Windows print the
+  manual `ip`/`ifconfig`/`route` commands you'd need to run yourself
+  (auto host-setup on those platforms is on the roadmap).
+
+The `.conf` file is a regular `wg-quick` configuration extended with
+`#@wgt:` metadata comments (see "config metadata" below). The same
+file works with vanilla `wg-quick up` — wgturn-aware tools just read
+extra lines.
+
+`Ctrl-C` reverses everything in LIFO order: routes deleted, addresses
+removed, link brought down, kernel stopped, hub stopped, Chrome killed,
+scratch user-data dir wiped.
+
+Pre-existing CLI flags (`-config`, `-peer`, `-vk-link`, etc.) keep
+working in legacy "hub-only" mode for backward compatibility.
+
+## Library quick start (custom integration)
 
 ```go
 package main
@@ -421,9 +456,15 @@ and curve25519 keys — completes in ~100 ms.
 - gomobile bindings (Android `.aar` / iOS `.xcframework`). They are
   trivial wrappers around `pkg/wgturn` + `pkg/wgkernel`; will land as
   a sibling repo.
-- Routing / DNS / firewall management around the system TUN — that is
-  intentionally the host application's responsibility (it knows the
-  platform conventions; we don't).
+- macOS / Windows host-side networking under `wgturn-cli connect`
+  (Linux is auto-configured; on other platforms the CLI prints the
+  `ip`/`ifconfig`/`route` commands you need to run by hand). Library
+  embedders are unaffected — `pkg/wgkernel` itself stays
+  platform-neutral by design.
+- Automatic DNS configuration around the system TUN — wg-quick uses
+  resolvconf / systemd-resolved / a `/etc/resolv.conf` rewrite
+  depending on distro, all of which are too platform-specific for v0.
+  Set DNS by hand (or via your OS network manager).
 
 ## Provenance & licensing
 

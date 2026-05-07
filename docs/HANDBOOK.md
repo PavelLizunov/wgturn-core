@@ -96,11 +96,52 @@ This burns VK API quota — VK rate-limits anonymous tokens per source IP.
 Don't do more than ~3 fetches per 10 minutes from .142. After that,
 wait ~30 min for the cooldown.
 
+### One-command mode (`wgturn-cli connect`)
+
+The recommended path since the cli-connect work landed: a single
+command stands up the hub, the embedded WG kernel, headless Chrome,
+and Linux host networking. Useful for end-to-end verification on
+.142.
+
+```bash
+# Single command — auto-spawns Chrome, brings up wgturn0 iface, sets
+# routes. Stays foreground; Ctrl-C reverses everything in LIFO order.
+ssh user@192.168.0.142 "sudo /tmp/wgturn-cli-linux-amd64 connect /tmp/wgturn-via-vk.conf -v"
+```
+
+Expected log sequence:
+```
+chrome auto-launch: spawned /usr/bin/google-chrome pid=… data-dir=/tmp/wgturn-chrome-…
+chrome auto-launch: ready at http://127.0.0.1:9222
+[vk] captcha required (attempt 1/3) ...
+[cdp-solver] got success_token
+[vk] stream=N fetched: turn=...
+[stream N] allocation ok
+connect: hub up; local listener 127.0.0.1:9000
+connect: kernel up; iface=wgturn0 addresses=[10.7.0.2/24] peers=1
+connect: host configured (link up, addrs assigned, routes added)
+connect: ready. Send traffic through the WG interface.
+```
+
+Verify exit IP from another shell:
+```bash
+ssh user@192.168.0.142 "curl --interface wgturn0 -s ifconfig.me"
+# expected: 93.95.226.167
+```
+
+Pass `--vk-chrome-url http://127.0.0.1:9222` if you already run Chrome
+yourself; the auto-launch step is then skipped.
+
+### Legacy hub-only mode (kept for backward compat)
+
+Useful when debugging the proxy plane in isolation — the user brings
+up WireGuard separately via `wg-quick up`.
+
 ```bash
 # 1. Ensure Chrome on .142 is up
 ssh user@192.168.0.142 "curl -s http://localhost:9222/json/version | head -c 200"
 
-# 2. Run wgturn-cli foreground
+# 2. Run wgturn-cli foreground (no `connect` subcommand → legacy mode)
 ssh user@192.168.0.142 "/tmp/wgturn-cli-linux-amd64 \
   -peer 93.95.226.167:56000 \
   -listen 127.0.0.1:9100 \
@@ -110,12 +151,8 @@ ssh user@192.168.0.142 "/tmp/wgturn-cli-linux-amd64 \
   -udp -v"
 ```
 
-Expected log sequence: `[vk] captcha required` → `[cdp-solver] got
-success_token` → `[vk] stream=N fetched: turn=...` → `[stream N]
-allocation ok` → `wgturn up`.
-
-For full WG-tunnel verification (curl through tunnel showing exit IP =
-93.95.226.167) see `~/wgturn-handoff/README.md` Path B.
+For full WG-tunnel verification through this path (curl through tunnel
+showing exit IP = 93.95.226.167) see `~/wgturn-handoff/README.md` Path B.
 
 ## Common errors and fixes
 

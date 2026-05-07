@@ -6,12 +6,12 @@ external `wg-quick` / `wireguard-tools` needed.
 
 ## Status
 
-✅ Code exists and works. Test suite includes a real WG handshake between
-two in-process kernels using paired memory TUNs and curve25519 keys.
+✅ Stable. Test suite includes a real WG handshake between two
+in-process kernels using paired memory TUNs and curve25519 keys.
 
-❌ Not yet wired into `cmd/wgturn-cli`. ROADMAP N1 is the integration
-work — adding a `connect` subcommand that brings up wgkernel + wgturn
-together so end users don't need separate `wg-quick`.
+✅ Wired into `cmd/wgturn-cli connect` — single command brings up
+wgturn hub + wgkernel + system TUN + (Linux) host-side networking,
+removing the need for users to run `wg-quick` separately.
 
 ## What's here
 
