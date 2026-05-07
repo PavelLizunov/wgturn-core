@@ -30,22 +30,16 @@ func NewSystemTUN(name string, mtu int) (tun.Device, error) {
 	return tun.CreateTUN(name, mtu)
 }
 
-// NewTUNFromFD wraps an already-open OS file descriptor into a
-// tun.Device. The FD must reference an open /dev/net/tun (Linux) or
-// utun (macOS) handle. Used on Android and iOS where the host VPN
-// service hands the app an FD.
+// NewTUNFromFD is implemented per-platform: tun_fromfd_linux.go provides
+// the real Linux/Android version on top of wireguard-go's
+// tun.CreateUnmonitoredTUNFromFD, while tun_fromfd_other.go returns a
+// "not supported" error everywhere else (macOS desktop, Windows). iOS
+// uses NEPacketTunnelProvider which doesn't go through this API.
 //
-// The mtu argument is currently unused — wireguard-go's
-// CreateUnmonitoredTUNFromFD takes the MTU from the FD's existing
-// configuration. Kept in the API for forwards compatibility.
-//
-// Returns the device and the resolved interface name (relevant on
-// macOS where utun gets a kernel-assigned name).
-//
-// On Windows this is not meaningful; use NewSystemTUN instead.
-func NewTUNFromFD(fd int, _ int) (tun.Device, string, error) {
-	return tun.CreateUnmonitoredTUNFromFD(fd)
-}
+// Splitting it into build-tagged files keeps `cmd/wgturn-cli` cross-
+// compilable for darwin/windows; before this split,
+// tun.CreateUnmonitoredTUNFromFD's linux-only symbol broke the desktop
+// build the moment connect.go imported wgkernel.
 
 // MemoryTUN is a tun.Device whose Read/Write paths terminate in
 // in-process channels. It exists for tests and for headless
