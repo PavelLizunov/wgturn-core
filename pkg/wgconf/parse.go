@@ -71,6 +71,28 @@ type Settings struct {
 	// distinct from the WireGuard [Peer] section captured in WGPeers.
 	Peer string
 
+	// EnableServer gates whether wgturn-cli should run in server mode
+	// for this config. Mutually exclusive with EnableTURN at runtime —
+	// a single .conf can in principle host both blocks for symmetry,
+	// but a given binary instance picks one role.
+	EnableServer bool
+
+	// Listen is the UDP host:port the server-side DTLS listener binds
+	// to. Required when EnableServer is true. e.g. ":56000" or
+	// "0.0.0.0:56000".
+	Listen string
+
+	// Backend is the data-plane spec the server forwards inner UDP
+	// payload to. Two forms today:
+	//
+	//   "udp:host:port"   dial a fresh UDP socket per session to host:port
+	//   "wgkernel"        bridge into the embedded wgkernel built from the
+	//                     [Interface]/[Peer] sections of this same .conf;
+	//                     experimental, single-client today.
+	//
+	// Required when EnableServer is true.
+	Backend string
+
 	// Iface holds the parsed [Interface] section of the wg-quick config.
 	// Zero value means the file had no [Interface] section.
 	Iface IfaceSection
@@ -350,6 +372,17 @@ func (s *Settings) set(key, val string) error {
 	case "peer":
 		s.Peer = val
 
+	case "enableserver":
+		b, err := parseBool(val)
+		if err != nil {
+			return fmt.Errorf("EnableServer: %w", err)
+		}
+		s.EnableServer = b
+	case "listen":
+		s.Listen = val
+	case "backend":
+		s.Backend = val
+
 	default:
 		s.Unknown[strings.ToLower(key)] = val
 	}
@@ -512,6 +545,53 @@ func parseAddrList(v string) ([]netip.Addr, error) {
 		out = append(out, addr)
 	}
 	return out, nil
+}
+
+// BackendKind enumerates the data-plane targets a server-side
+// .conf can request through #@wgt:Backend.
+type BackendKind string
+
+// Recognised BackendKind values. Anything else from the file surfaces
+// as an error from ParseBackendSpec.
+const (
+	// BackendUDP forwards into a fresh per-session UDP socket dialed
+	// to the address that follows the "udp:" prefix.
+	BackendUDP BackendKind = "udp"
+
+	// BackendWGKernel bridges the server into an embedded
+	// wgkernel.Kernel built from the same .conf's [Interface]/[Peer]
+	// sections. Experimental — single-client today; multi-peer
+	// fan-out is future work.
+	BackendWGKernel BackendKind = "wgkernel"
+)
+
+// ParseBackendSpec splits a #@wgt:Backend value into its kind and
+// optional address. The accepted forms are:
+//
+//	"udp:host:port"  -> (BackendUDP, "host:port", nil)
+//	"wgkernel"       -> (BackendWGKernel, "", nil)
+//
+// An empty spec returns an error so callers don't fall through into a
+// nil-Backend Server config silently.
+func ParseBackendSpec(spec string) (BackendKind, string, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return "", "", errors.New("wgconf: empty Backend spec")
+	}
+	if strings.EqualFold(spec, string(BackendWGKernel)) {
+		return BackendWGKernel, "", nil
+	}
+	if rest, ok := strings.CutPrefix(strings.ToLower(spec), "udp:"); ok {
+		// Take the rest from the original spec (preserve case in any
+		// hostname) by slicing at the prefix length.
+		addr := strings.TrimSpace(spec[len("udp:"):])
+		_ = rest // already lower-cased; not used
+		if addr == "" {
+			return "", "", errors.New("wgconf: udp Backend missing host:port")
+		}
+		return BackendUDP, addr, nil
+	}
+	return "", "", fmt.Errorf("wgconf: unknown Backend spec %q (want \"udp:host:port\" or \"wgkernel\")", spec)
 }
 
 // ToTunnelConfig lifts Settings into a wgturn.Config skeleton. The

@@ -434,6 +434,73 @@ func TestParseString_MalformedIniReturnsError(t *testing.T) {
 	}
 }
 
+// TestParseString_ServerSideKeys covers the EnableServer / Listen /
+// Backend metadata keys introduced for the server-side .conf format.
+func TestParseString_ServerSideKeys(t *testing.T) {
+	const cfg = `
+#@wgt:EnableServer = true
+#@wgt:Listen       = :56000
+#@wgt:Backend      = udp:127.0.0.1:51820
+`
+	got, err := ParseString(cfg)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !got.EnableServer {
+		t.Error("EnableServer: want true")
+	}
+	if got.Listen != ":56000" {
+		t.Errorf("Listen = %q", got.Listen)
+	}
+	if got.Backend != "udp:127.0.0.1:51820" {
+		t.Errorf("Backend = %q", got.Backend)
+	}
+}
+
+// TestParseBackendSpec walks the small surface of ParseBackendSpec:
+// the two recognised forms plus malformed inputs should all surface
+// the right kind / address / error shape.
+func TestParseBackendSpec(t *testing.T) {
+	cases := []struct {
+		name    string
+		spec    string
+		want    BackendKind
+		addr    string
+		wantErr bool
+	}{
+		{name: "udp lowercase", spec: "udp:127.0.0.1:51820", want: BackendUDP, addr: "127.0.0.1:51820"},
+		{name: "udp uppercase prefix", spec: "UDP:10.0.0.1:9000", want: BackendUDP, addr: "10.0.0.1:9000"},
+		{name: "udp with hostname", spec: "udp:wg0.local:51820", want: BackendUDP, addr: "wg0.local:51820"},
+		{name: "wgkernel lowercase", spec: "wgkernel", want: BackendWGKernel},
+		{name: "wgkernel uppercase", spec: "WGKERNEL", want: BackendWGKernel},
+		{name: "empty", spec: "", wantErr: true},
+		{name: "udp without addr", spec: "udp:", wantErr: true},
+		{name: "unknown kind", spec: "tcp:127.0.0.1:9000", wantErr: true},
+		{name: "garbage", spec: "asdf", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, addr, err := ParseBackendSpec(tc.spec)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("ParseBackendSpec(%q) = (%q, %q, nil); want error", tc.spec, kind, addr)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseBackendSpec(%q) error: %v", tc.spec, err)
+				return
+			}
+			if kind != tc.want {
+				t.Errorf("kind = %q, want %q", kind, tc.want)
+			}
+			if addr != tc.addr {
+				t.Errorf("addr = %q, want %q", addr, tc.addr)
+			}
+		})
+	}
+}
+
 func TestParseString_SectionsAndMetaInterleave(t *testing.T) {
 	// wgturn metadata can appear before, between, or after sections —
 	// the result is the same.

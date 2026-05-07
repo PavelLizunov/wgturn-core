@@ -1,14 +1,20 @@
 // Copyright 2026 The wgturn-core Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// wgturn-cli is the reference binary for wgturn-core on desktop. Two
-// modes:
+// wgturn-cli is the reference binary for wgturn-core on desktop. Three
+// subcommands plus the legacy mode:
 //
 //	wgturn-cli connect <wireguard.conf>
 //	    Single-command VPN: brings up both the wgturn proxy hub and an
 //	    embedded WireGuard kernel from one .conf file. Auto-launches
 //	    headless Chrome for the CDP captcha solver unless --vk-chrome-url
 //	    points at an existing instance. ROADMAP N1.
+//
+//	wgturn-cli serve <server.conf>
+//	    Server-side counterpart to `connect`: terminates wgturn proxy_v2
+//	    sessions on a UDP listener and forwards inner payload to a
+//	    Backend (typically a local WireGuard daemon). Intended to replace
+//	    the legacy GPL upstream on a VPS. ROADMAP N8.
 //
 //	wgturn-cli [-config wireguard.conf] [-peer host:port] [-vk-link url] ...
 //	    Legacy hub-only mode: only runs the wgturn proxy. The user must
@@ -41,12 +47,20 @@ import (
 func main() {
 	// Subcommand dispatch. The legacy mode (no subcommand, top-level
 	// flags) is preserved verbatim so handoff-bundle instructions still
-	// work; new functionality goes under `connect`.
-	if len(os.Args) >= 2 && os.Args[1] == "connect" {
-		if err := runConnect(os.Args[2:]); err != nil {
-			log.Fatalf("connect: %v", err)
+	// work; new functionality goes under named subcommands.
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "connect":
+			if err := runConnect(os.Args[2:]); err != nil {
+				log.Fatalf("connect: %v", err)
+			}
+			return
+		case "serve":
+			if err := runServe(os.Args[2:]); err != nil {
+				log.Fatalf("serve: %v", err)
+			}
+			return
 		}
-		return
 	}
 	if err := runProxy(os.Args[1:]); err != nil {
 		log.Fatalf("%v", err)
