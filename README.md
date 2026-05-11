@@ -1,5 +1,46 @@
 # wgturn-core
 
+> ## ⚠️ Read before using
+>
+> **Legal** — this software exists to help people maintain access to
+> the open internet when their government has blocked standard VPN
+> protocols. In some jurisdictions (notably Russia under 276-ФЗ)
+> distributing or using "means to bypass blocking" carries legal
+> risk for the operator and, depending on the year and the
+> enforcement climate, sometimes the end user. **You are responsible
+> for understanding your local law.** The authors are not lawyers
+> and take no responsibility for how you use this code.
+>
+> **Operational** — the technique piggybacks on VK Calls' anonymous
+> TURN infrastructure. VK is under no obligation to keep that API
+> stable, and active publicity of this technique may accelerate them
+> patching it (the Streisand effect is real for projects like this).
+> Build your dependency stack accordingly: this is an emergency
+> channel, not a daily driver. The day VK changes their anonymous
+> token flow, every binary built from this repo stops working until
+> the provider package is updated.
+>
+> **Privacy** — anyone who operates a `wgturn-cli serve` instance is
+> a VPN provider for everyone whose `wgturn://` URL points at it.
+> That box's IP appears in your users' connection logs (toward VK
+> only — but VK can correlate). The server forwards into a local
+> WireGuard daemon whose logs / connection table reveal who
+> connected when. Run the server on hardware you trust, in a
+> jurisdiction whose disclosure rules you understand.
+>
+> **Ethics** — please don't use this to flood VK's anonymous-token
+> API, run abusive traffic, build a commercial service without
+> paying VK for legitimate access, or worse. The infrastructure
+> only stays open because abuse stays low. See "Anti-roadmap" in
+> `docs/ROADMAP.md`.
+>
+> **Bandwidth ceiling** — ~200 KB/s (~1.6 Mbps) per source IP, hard
+> empirical limit. Adding more streams / call links / servers does
+> NOT raise it. If you want a daily-driver VPN, this is the wrong
+> tool — point users at xray/REALITY through their own RU VPS.
+
+---
+
 `wgturn-core` is an embeddable Go library that tunnels arbitrary UDP
 traffic — typically WireGuard — through a public TURN relay using
 DTLS 1.2 obfuscation and STUN ChannelData. It is the platform-agnostic
@@ -476,7 +517,33 @@ for Testing doesn't publish a headless_shell build for it.
 See `pkg/wgturn/provider/vk/captchasolve/embedded/` for the
 implementation and `docs/ROADMAP.md` (N4) for the trade-offs.
 
-## What's NOT yet in v0.0.1-alpha
+## What's in v0.1.0 (current release)
+
+- `pkg/wgturn` proxy hub + multi-stream + multi-link fan-out.
+- `pkg/wgturn/provider/vk` VK Calls anonymous-token client with
+  full Chrome JA3 / header parity and the correct `success_token`
+  retry envelope.
+- `pkg/wgturn/provider/vk/captchasolve` (CDPSolver — real Chrome,
+  ~1 s per solve) and `captchasolve/embedded` (optional bundled
+  chrome-headless-shell, `-tags embedded`, +~100 MB per binary).
+- `pkg/wgkernel` embedded WireGuard userspace; pairs cleanly with
+  the proxy hub via `wgkernel.WithTurnTunnel`.
+- `pkg/wgconf` parser for `#@wgt:` metadata + standard wg-quick
+  `[Interface]` / `[Peer]` sections.
+- `pkg/wgturnsrv` Apache-2.0 server-side proxy with demuxer,
+  `Backend` interface, and `UDPBackend`. Replaces the legacy GPL
+  `slovn/wgturn-server` fork. In-process `pair_test.go` proves a
+  WG handshake traverses the full stack end-to-end.
+- `pkg/wgshare` + `pkg/wgadmin`: single-string distribution flow.
+  Server admin runs `wgturn-cli provision-url alice bob ...`, gets
+  `wgturn://...` URLs, hands them to users; users run
+  `wgturn-cli connect-url '<url>' --vk-link '<url>'`.
+- `cmd/wgturn-cli` with `connect`, `connect-url`, `serve`,
+  `provision-url`, `revoke-url` subcommands plus the legacy
+  flag-driven mode (kept for backward compat).
+- `examples/vpn-client/` — ~120-line embedder template.
+
+## What's NOT yet in v0.1.0
 
 - WB Stream API provider (analogous to VK's, different upstream).
 - DNS-cascade resolver (kiper292's UDP→DoH→DoT failover for credential
@@ -496,6 +563,10 @@ implementation and `docs/ROADMAP.md` (N4) for the trade-offs.
 - Embedded Chromium for linux/arm64 (Chrome for Testing doesn't
   publish that combination — Raspberry Pi users keep installing
   chromium-browser themselves).
+- Multi-peer all-in-one mode (`Backend = wgkernel` inside
+  `wgturn-cli serve`). The single-session version exists for tests;
+  the multi-peer fan-out variant for production all-in-one
+  deployments is future work.
 
 ## Provenance & licensing
 
