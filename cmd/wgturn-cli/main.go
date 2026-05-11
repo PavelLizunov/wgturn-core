@@ -50,6 +50,9 @@ func main() {
 	// work; new functionality goes under named subcommands.
 	if len(os.Args) >= 2 {
 		switch os.Args[1] {
+		case "version", "--version", "-version":
+			printVersion()
+			return
 		case "connect":
 			if err := runConnect(os.Args[2:]); err != nil {
 				log.Fatalf("connect: %v", err)
