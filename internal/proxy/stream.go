@@ -77,12 +77,19 @@ func (s *stream) run(ctx context.Context, sessionID []byte, cert *tls.Certificat
 		}
 
 		if err := s.runOnce(ctx, sessionID, cert); err != nil && ctx.Err() == nil {
-			s.hub.cfg.Logger.Warnf("[stream %d] run error: %v; reconnecting in 1s", s.id, err)
+			// Default 1s reconnect, but back off hard when VK is rate-limiting
+			// anonymous-token requests (error_code 29) — a flat 1s retry just
+			// hammers the limit and prolongs it.
+			backoff := time.Second
+			if creds.IsRateLimitError(err) {
+				backoff = 15 * time.Second
+			}
+			s.hub.cfg.Logger.Warnf("[stream %d] run error: %v; reconnecting in %v", s.id, err, backoff)
 			s.ready.Store(false)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(time.Second):
+			case <-time.After(backoff):
 			}
 		}
 	}

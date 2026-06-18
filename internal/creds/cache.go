@@ -245,3 +245,16 @@ func IsAuthError(err error) bool {
 	}
 	return false
 }
+
+// IsRateLimitError reports whether err is a VK anonymous-token rate-limit
+// (error_code 29). String-matched (same approach as IsAuthError) so the proxy
+// package can pick a longer reconnect backoff without importing pkg/wgturn
+// (which would be a circular import). Matching both the code and VK's message
+// keeps it working if either side of the envelope changes.
+func IsRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "code=29") || strings.Contains(s, "Rate limit")
+}
