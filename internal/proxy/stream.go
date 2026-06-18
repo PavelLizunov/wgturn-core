@@ -165,12 +165,16 @@ func (s *stream) runOnce(ctx context.Context, sessionID []byte, cert *tls.Certif
 	defer client.Close()
 
 	if lerr := client.Listen(); lerr != nil {
-		return fmt.Errorf("turn listen: %w", lerr)
+		err := fmt.Errorf("turn listen: %w", lerr)
+		s.invalidateOnAuthError(err)
+		return err
 	}
 
 	relay, aerr := client.Allocate()
 	if aerr != nil {
-		return fmt.Errorf("turn allocate: %w", aerr)
+		err := fmt.Errorf("turn allocate: %w", aerr)
+		s.invalidateOnAuthError(err)
+		return err
 	}
 	defer relay.Close()
 
@@ -193,6 +197,10 @@ func (s *stream) runOnce(ctx context.Context, sessionID []byte, cert *tls.Certif
 func (s *stream) pumpRaw(ctx context.Context, relay net.PacketConn, peerUDP *net.UDPAddr) error {
 	pumpCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// Clear readiness synchronously the moment the pump returns, so the
+	// Hub scheduler stops selecting this stream for TX before run() loops
+	// (closes the stale-ready window).
+	defer s.ready.Store(false)
 
 	context.AfterFunc(pumpCtx, func() {
 		_ = relay.SetDeadline(time.Now())
@@ -254,7 +262,7 @@ func (s *stream) pumpRaw(ctx context.Context, relay net.PacketConn, peerUDP *net
 	s.hub.signalReady()
 
 	wg.Wait()
-	return nil
+	return pumpExitErr(ctx)
 }
 
 // pumpDTLS forwards bytes between local listener and TURN relay through
@@ -272,6 +280,10 @@ func (s *stream) pumpDTLS(
 ) error {
 	pumpCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// Clear readiness synchronously the moment the pump returns, so the
+	// Hub scheduler stops selecting this stream for TX before run() loops
+	// (closes the stale-ready window).
+	defer s.ready.Store(false)
 
 	c1, c2 := connutil.AsyncPacketPipe()
 	defer c1.Close()
@@ -409,7 +421,30 @@ func (s *stream) pumpDTLS(
 	}()
 
 	wg.Wait()
-	return nil
+	return pumpExitErr(ctx)
+}
+
+// pumpExitErr classifies why a pump's goroutines all returned. A pump
+// goroutine that hits a relay/DTLS I/O error cancels the shared pumpCtx via
+// its deferred cancel(), tearing the others down — so if we reach here with
+// the PARENT ctx still live, a failure (not a clean shutdown) ended the
+// session. Returning a non-nil error makes run() reset readiness and
+// reconnect with backoff instead of busy-looping on the dead session.
+func pumpExitErr(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return errors.New("stream pump terminated (relay/DTLS failure)")
+}
+
+// invalidateOnAuthError asks the credential cache to drop this stream's
+// group credentials when a TURN failure looks like an auth rejection, so the
+// next runOnce refetches instead of retrying with the same rejected creds for
+// the whole cache TTL.
+func (s *stream) invalidateOnAuthError(err error) {
+	if creds.IsAuthError(err) {
+		s.hub.creds.HandleAuthError(s.id)
+	}
 }
 
 // connectedUDPConn lets a *net.UDPConn satisfy net.PacketConn semantics

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,6 +125,13 @@ func (s *CDPSolver) Solve(ctx context.Context, ch vkprov.CaptchaChallenge) (vkpr
 		return vkprov.Solution{}, err
 	}
 
+	// The redirect_uri comes straight from VK's (untrusted) captcha-error
+	// payload. Refuse to drive Chrome anywhere outside the VK allowlist so a
+	// malicious or MITM'd response can't turn the solver into an SSRF /
+	// arbitrary-navigation primitive.
+	if err := assertVKHost(ch.RedirectURI); err != nil {
+		return vkprov.Solution{}, fmt.Errorf("refusing to navigate Chrome: %w", err)
+	}
 	if _, err := sess.call(ctx, "Page.navigate", map[string]any{"url": ch.RedirectURI}); err != nil {
 		return vkprov.Solution{}, fmt.Errorf("Page.navigate: %w", err)
 	}
@@ -144,6 +152,25 @@ func (s *CDPSolver) Solve(ctx context.Context, ch vkprov.CaptchaChallenge) (vkpr
 	}
 	log.Debugf("[cdp-solver] got success_token (len=%d)", len(token))
 	return vkprov.Solution{SuccessToken: token}, nil
+}
+
+// assertVKHost permits only https URLs whose host is a VK property (where the
+// not-a-robot captcha legitimately lives). Anything else is rejected so the
+// CDP solver never navigates Chrome to an attacker-influenced URL.
+func assertVKHost(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse redirect_uri: %w", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("redirect_uri scheme %q is not https", u.Scheme)
+	}
+	h := strings.ToLower(u.Hostname())
+	if h == "vk.ru" || h == "vk.com" ||
+		strings.HasSuffix(h, ".vk.ru") || strings.HasSuffix(h, ".vk.com") {
+		return nil
+	}
+	return fmt.Errorf("redirect_uri host %q not in VK allowlist", h)
 }
 
 func (s *CDPSolver) logger() wgturn.Logger {
