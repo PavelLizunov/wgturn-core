@@ -19,6 +19,29 @@ import (
 // headroom for the encapsulation chain.
 const DefaultMTU = 1280
 
+// MaxMTU is the largest interface MTU wgturn-core will hand to the TUN
+// device. A TUN packet of M bytes becomes M+~109 on the wire once the
+// WireGuard data header+tag (~32), DTLS record+CID (~45), TURN ChannelData
+// (4) and UDP/IP (28) encapsulation are added; above this a full-size packet
+// exceeds a 1500-byte path and is IP-fragmented or dropped on the carrier.
+// Larger configured values are clamped down to this ceiling rather than
+// silently overflowing. Paths below 1500 (some mobile carriers) still want
+// the 1280 default or lower set explicitly.
+const MaxMTU = 1380
+
+// clampMTU resolves the effective TUN MTU: DefaultMTU when unset/non-positive,
+// and never above MaxMTU so an over-large configured value cannot overflow the
+// DTLS-over-TURN carrier path.
+func clampMTU(mtu int) int {
+	if mtu <= 0 {
+		return DefaultMTU
+	}
+	if mtu > MaxMTU {
+		return MaxMTU
+	}
+	return mtu
+}
+
 // Config describes one WireGuard interface. Field semantics map to
 // the wg-quick `[Interface]` and `[Peer]` sections; we omit the
 // platform-specific bits (PostUp, Table, FwMark) since this kernel

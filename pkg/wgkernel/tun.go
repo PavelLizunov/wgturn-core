@@ -24,10 +24,7 @@ import (
 // name is the desired interface name (Linux/macOS), ignored on Windows
 // where wintun assigns one. mtu defaults to DefaultMTU when zero.
 func NewSystemTUN(name string, mtu int) (tun.Device, error) {
-	if mtu == 0 {
-		mtu = DefaultMTU
-	}
-	return tun.CreateTUN(name, mtu)
+	return tun.CreateTUN(name, clampMTU(mtu))
 }
 
 // NewTUNFromFD is implemented per-platform: tun_fromfd_linux.go provides
@@ -68,9 +65,7 @@ type MemoryTUN struct {
 // packet queue depth (16 is sufficient for handshake + a few exchange
 // packets; raise it if the test sends bursts).
 func NewMemoryTUNPair(name string, mtu, buffer int) (a, b *MemoryTUN) {
-	if mtu <= 0 {
-		mtu = DefaultMTU
-	}
+	mtu = clampMTU(mtu)
 	if buffer <= 0 {
 		buffer = 16
 	}
