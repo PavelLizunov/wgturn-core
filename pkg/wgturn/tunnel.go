@@ -171,6 +171,26 @@ func (t *Tunnel) Stats() (Stats, error) {
 	}, nil
 }
 
+// Healthy reports whether at least min streams are currently running.
+//
+// Start returns as soon as ONE stream is up — the carrier is usable
+// immediately and the rest allocate in the background — so a running Tunnel
+// can be silently degraded (e.g. 1 of 16 streams up, the other 15 looping on
+// allocation failure). Healthy surfaces that: an embedder can poll
+// Healthy(want) to distinguish a fully-up tunnel from a barely-alive one and
+// react (alert, re-provision, widen the call-link pool). min <= 0 means "at
+// least one stream". Returns false before Start / after Stop.
+func (t *Tunnel) Healthy(min int) bool {
+	s, err := t.Stats()
+	if err != nil {
+		return false
+	}
+	if min <= 0 {
+		min = 1
+	}
+	return s.StreamsRunning >= min
+}
+
 // providerAdapter bridges the public CredentialsProvider into the
 // internal proxy package's narrower view.
 type providerAdapter struct {
