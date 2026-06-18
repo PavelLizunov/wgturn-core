@@ -194,6 +194,12 @@ func (c *Cache) HandleAuthError(streamID int) bool {
 	gid := c.groupID(streamID)
 	now := time.Now().Unix()
 
+	// Hold e.mu for the whole read-modify-write so the window-reset, the
+	// increment and the threshold-invalidate can't interleave with another
+	// caller (lost-update on errorCount).
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	if now-e.lastErrorTime.Load() > int64(ErrorWindow.Seconds()) {
 		e.errorCount.Store(0)
 	}
@@ -203,11 +209,9 @@ func (c *Cache) HandleAuthError(streamID int) bool {
 	c.logger.Warnf("[creds] auth error (group=%d, count=%d/%d)", gid, count, MaxCacheErrors)
 
 	if count >= MaxCacheErrors {
-		e.mu.Lock()
 		e.creds = Credentials{}
 		e.link = ""
 		e.expires = time.Time{}
-		e.mu.Unlock()
 		e.errorCount.Store(0)
 		e.lastErrorTime.Store(0)
 		c.logger.Warnf("[creds] auth-error threshold reached; invalidated group=%d", gid)

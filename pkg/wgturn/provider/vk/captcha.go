@@ -169,6 +169,11 @@ func applySolution(form interface{ Set(k, v string) }, ch CaptchaChallenge, sol 
 			form.Set("captcha_attempt", fmt.Sprintf("%d", ch.Attempt))
 		}
 	case sol.Key != "":
+		// Clear any success_token-mode fields a previous attempt left on the
+		// (reused) form, so a token->text retry sends a clean single-mode
+		// payload VK won't reject as contradictory.
+		form.Set("success_token", "")
+		form.Set("is_sound_captcha", "")
 		form.Set("captcha_key", sol.Key)
 	default:
 		return fmt.Errorf("solver returned empty solution")

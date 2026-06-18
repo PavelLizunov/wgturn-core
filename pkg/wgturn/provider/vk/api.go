@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -198,10 +199,15 @@ func (c *apiClient) fetchTurn(ctx context.Context, callID string) (string, strin
 	step3URL := c.hosts.api + "/method/calls.getAnonymousToken?v=" + apiVersion + "&client_id=" + c.appID
 
 	const maxCaptchaAttempts = 3
+	// Bound the whole captcha-retry loop: 3 attempts each Solve-ing for up to
+	// ~60s could otherwise block one Fetch ~3 min, far past StartTimeout. Cap
+	// total captcha cost per Fetch (caller's ctx still wins if shorter).
+	captchaCtx, captchaCancel := context.WithTimeout(ctx, 90*time.Second)
+	defer captchaCancel()
 	var token2 string
 attempts:
 	for attempt := 0; attempt < maxCaptchaAttempts; attempt++ {
-		resp, err = c.post(ctx, step3URL, step3Form)
+		resp, err = c.post(captchaCtx, step3URL, step3Form)
 		switch {
 		case err == nil:
 			break attempts
@@ -213,7 +219,7 @@ attempts:
 			c.logger.Infof("[vk] captcha required (attempt %d/%d): sid=%s img=%s",
 				attempt+1, maxCaptchaAttempts, ch.SID, ch.ImgURL)
 
-			sol, solveErr := c.captcha.Solve(ctx, *ch)
+			sol, solveErr := c.captcha.Solve(captchaCtx, *ch)
 			if solveErr != nil {
 				return "", "", "", fmt.Errorf("step3 captcha solver: %w", solveErr)
 			}

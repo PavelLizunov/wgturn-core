@@ -75,7 +75,9 @@ func (p *Provider) Fetch(ctx context.Context, hint string, streamID int) (wgturn
 		p.logger.Warnf("[vk] stream=%d fetch failed: %v", streamID, err)
 		return wgturn.Credentials{}, err
 	}
-	p.logger.Infof("[vk] stream=%d fetched: turn=%s user=%s", streamID, addr, user)
+	p.logger.Infof("[vk] stream=%d fetched (turn=%s)", streamID, addr)
+	// TURN username is a credential — keep it out of default-level logs.
+	p.logger.Debugf("[vk] stream=%d turn user=%s", streamID, user)
 
 	return wgturn.Credentials{
 		Username:   user,

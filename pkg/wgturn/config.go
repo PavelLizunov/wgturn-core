@@ -158,6 +158,12 @@ func (c Config) Validate() error {
 	if c.Streams < 0 {
 		return fmt.Errorf("%w: Streams must be >= 0 (zero defaults to 1)", ErrInvalidConfig)
 	}
+	if c.Streams > 255 {
+		// proxy_v2 encodes the stream id in a single handshake byte; >255
+		// streams collide mod 256 and cross-attribute packets on the shared
+		// backend connection.
+		return fmt.Errorf("%w: Streams must be <= 255", ErrInvalidConfig)
+	}
 	if c.StreamsPerCred < 0 {
 		return fmt.Errorf("%w: StreamsPerCred must be >= 0 (zero defaults to 4)", ErrInvalidConfig)
 	}
