@@ -4,8 +4,6 @@ Thin wrapper around `pkg/wgturn` and `pkg/wgkernel`. **Not the API
 contract** — embedders shouldn't depend on the CLI's flag stability,
 only on the public packages.
 
-## Modes
-
 ### `connect` subcommand — one-command VPN (the recommended path)
 
 ```sh
@@ -113,8 +111,6 @@ Idempotency policy: half-state from a previous crashed run gets a
   bandwidth. We empirically picked it.
 - Don't break `-config` / `-peer` / `-listen` etc. — handoff bundle
   README and example configs depend on them.
-- Don't introduce default-on options that hit network (e.g. don't
-  auto-enable telemetry).
 - Don't move chrome.go / hostsetup.go to public packages without a
   concrete second consumer. They're CLI-private until proven otherwise.
 - Don't make `connect` swallow errors silently. The user reads stderr

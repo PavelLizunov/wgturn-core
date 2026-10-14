@@ -14,13 +14,6 @@ PrivateKey = ...
 Address    = 10.7.0.2/24
 DNS        = 1.1.1.1, 8.8.8.8
 MTU        = 1280
-#@wgt:EnableTURN     = true
-#@wgt:Mode           = vk_link
-#@wgt:VkLink         = https://vk.com/call/join/abcdef
-#@wgt:PeerType       = proxy_v2
-#@wgt:Streams        = 24
-#@wgt:WatchdogTimeout= 30
-#@wgt:Peer           = vps.example.com:56000
 #@wgt:LocalListen    = 127.0.0.1:9000
 
 [Peer]
@@ -66,8 +59,6 @@ Two conversion methods:
 - Don't change the prefix `#@wgt:` — it's the agreed convention with
   `kiper292/wireguard-turn-android` and our handoff bundle's example
   configs.
-- Field names in `Settings`, `IfaceSection`, `PeerSection` are part of
-  the wire format. Don't rename.
 - Don't add a `wgkernel` import here — keep the dep tree small for
   embedders that just want config parsing.
 - Host-side wg-quick keys (`PostUp`, `PreDown`, `Table`, `FwMark`,

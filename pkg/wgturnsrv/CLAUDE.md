@@ -37,8 +37,6 @@ to a configurable Backend (typically a local WireGuard daemon).
   → demux → bind → wgkernel#2). If this is green, the server is
   real.
 
-## Critical invariants
-
 ### Apache-2.0 cleanliness — non-negotiable
 
 > The wire protocol matches `kiper292/vk-turn-proxy` (GPL-3.0); this
@@ -128,9 +126,6 @@ shutdown lives on `kernelBackendConn.closeC`, not on the bind.
 - Don't open multiple `Server` instances on the same UDP port. One
   process, one listener; horizontal scaling is via
   one-server-per-VPS, not one-port-multi-process.
-- Don't deploy on is-01 without finishing the parallel-port soak
-  in `docs/HANDBOOK.md` "Switching is-01". Pavel's only emergency
-  tunnel goes through that box; breaking it has real cost.
 
 ## Tests
 

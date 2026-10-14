@@ -1,9 +1,5 @@
 # internal/proxy — Hub + Stream
 
-Internal because the wire format MUST be stable but the implementation
-isn't part of the API contract. Don't import this from outside the
-module.
-
 ## What's here
 
 - `types.go` — `HubConfig` (proxy-internal counterpart of public
@@ -22,8 +18,6 @@ module.
 - `integration_test.go` — flagship E2E test using a real in-process
   pion/turn server.
 - `hub_internal_test.go` — `hintFor` round-robin coverage.
-
-## Critical invariants
 
 ### proxy_v2 framing (what `wgturn-server` expects)
 

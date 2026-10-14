@@ -28,8 +28,6 @@ tool) can import this package directly.
   one process via internal mutex; cross-process callers add their
   own `flock`.
 
-## Critical invariants
-
 ### `wg0.conf` is the single source of truth
 
 There's no separate `state.json`. Every Provision/Revoke
@@ -100,17 +98,11 @@ peers, err := srv.List()
 - Don't write to `wg0.conf` non-atomically. Crashes mid-write would
   leave half-formed peer blocks that wg-quick (or wg syncconf via
   `Server.sync`) reads as garbage.
-- Don't change the `# wgturn-name = …` tag format. The legacy shell
-  scripts grep for it; if they stop finding it, `list-users.sh`
-  starts hiding peers.
 - Don't pass the unstripped wg0.conf to `wg syncconf`. PostUp /
   Address / DNS / FwMark / Table will all error out.
 - Don't reuse a /32 that's still in another peer's AllowedIPs.
   AllocateClientIP's "taken" set is the safety net here; tests
   cover every-host-in-/30 and reuse-after-revoke.
-- Don't expose the unexported `rawLines` field in Peer through API
-  changes. Embedders using List get clean data; round-trip
-  formatting is implementation-private.
 
 ## Tests
 

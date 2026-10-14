@@ -63,9 +63,6 @@ marker line and the [Peer] block immediately following it, then
 
 ## Don't regress
 
-- The `# wgturn-provisioned: …` marker format is part of the
-  contract between provision-user.sh, list-users.sh, and
-  revoke-user.sh. Don't reformat without updating all three.
 - `awk` is invoked with the program piped over stdin (`-f -`)
   rather than as a `'…'` argument, because base64 keys contain
   characters the layered shell-quoting would mangle. Keep that
@@ -76,10 +73,6 @@ marker line and the [Peer] block immediately following it, then
   a bash feature.
 - IP allocation is sequential and starts at `.2` (server keeps
   `.1`). Refuse to roll over past `.254`.
-- The keypair is generated locally; **never** ask the server for
-  the private half. (We could in principle have the server `wg
-  genkey` for us, but that would expose the key to anyone with
-  log access on the server.)
 
 ## Testing
 

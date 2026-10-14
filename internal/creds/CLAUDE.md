@@ -39,8 +39,6 @@ allocation returns 401/403 (creds rejected, e.g. expired mid-stream).
 Counts errors per group. After 3 errors within `ErrorWindow` (10 sec)
 the entry is invalidated and the next `Get` triggers a refetch.
 
-## TTL handling
-
 `Credentials.ExpiresIn` from the provider sets the cache TTL. If the
 provider returns 0, `DefaultLifetime` (10 min) is used with
 `DefaultSafetyMargin` (60 sec) shaved off — so we refetch slightly
